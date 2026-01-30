@@ -2,18 +2,18 @@
 import { Sidebar } from "@/components/Sidebar";
 import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
+import Link from 'next/link';
 
 export default function Home() {
-  // Variáveis para guardar os números do painel
   const [saldo, setSaldo] = useState(0);
-  const [qtdPedidos, setQtdPedidos] = useState(0);
+  const [qtdVendas, setQtdVendas] = useState(0);
   const [qtdProdutos, setQtdProdutos] = useState(0);
   const [status, setStatus] = useState("🟡 Calculando indicadores...");
 
   useEffect(() => {
     async function carregarDashboard() {
       try {
-        // 1. Busca Saldo (Cálculo igual ao da página Financeiro)
+        // 1. Busca Saldo (Financeiro continua igual)
         const { data: financeiro } = await supabase.from('financeiro').select('*');
         if (financeiro) {
           const total = financeiro.reduce((acc, item) => {
@@ -22,9 +22,12 @@ export default function Home() {
           setSaldo(total);
         }
 
-        // 2. Busca Quantidade de Pedidos
-        const { count: totalPedidos } = await supabase.from('pedidos').select('*', { count: 'exact', head: true });
-        setQtdPedidos(totalPedidos || 0);
+        // 2. Busca Quantidade de Vendas (AGORA NA TABELA NOVA "VENDAS")
+        const { count: totalVendas } = await supabase
+          .from('vendas') // <--- Mudamos aqui!
+          .select('*', { count: 'exact', head: true });
+        
+        setQtdVendas(totalVendas || 0);
 
         // 3. Busca Quantidade de Produtos
         const { count: totalProdutos } = await supabase.from('produtos').select('*', { count: 'exact', head: true });
@@ -60,11 +63,11 @@ export default function Home() {
             <p className="text-xs text-gray-400 mt-2">Atualizado agora</p>
           </div>
 
-          {/* Card Pedidos */}
+          {/* Card Vendas */}
           <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-blue-500">
             <h3 className="text-gray-500 text-sm font-bold uppercase">Vendas Realizadas</h3>
-            <p className="text-3xl font-bold text-gray-800 mt-2">{qtdPedidos}</p>
-            <p className="text-xs text-gray-400 mt-2">Pedidos totais no sistema</p>
+            <p className="text-3xl font-bold text-gray-800 mt-2">{qtdVendas}</p>
+            <p className="text-xs text-gray-400 mt-2">Pedidos confirmados (Nova Estrutura)</p>
           </div>
 
           {/* Card Estoque */}
@@ -79,16 +82,16 @@ export default function Home() {
         {/* Área de Atalhos Rápidos */}
         <h2 className="text-xl font-bold text-gray-800 mb-4">Acesso Rápido</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <a href="/pedidos" className="block p-6 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition">
+            <Link href="/pedidos" className="block p-6 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition">
                 <span className="text-2xl">🛒</span>
                 <span className="ml-3 font-bold text-blue-800">Nova Venda</span>
-                <p className="text-sm text-blue-600 mt-1 ml-9">Registrar saída de mercadoria</p>
-            </a>
-            <a href="/estoque" className="block p-6 bg-green-50 border border-green-100 rounded-lg hover:bg-green-100 transition">
+                <p className="text-sm text-blue-600 mt-1 ml-9">Registrar pedido agrupado</p>
+            </Link>
+            <Link href="/estoque" className="block p-6 bg-green-50 border border-green-100 rounded-lg hover:bg-green-100 transition">
                 <span className="text-2xl">📦</span>
                 <span className="ml-3 font-bold text-green-800">Cadastrar Produto</span>
                 <p className="text-sm text-green-600 mt-1 ml-9">Adicionar item ao estoque</p>
-            </a>
+            </Link>
         </div>
 
       </main>
