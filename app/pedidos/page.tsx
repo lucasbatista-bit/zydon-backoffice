@@ -8,44 +8,39 @@ export default function Pedidos() {
   const [listaVendas, setListaVendas] = useState<any[]>([]);
   const [produtosDisponiveis, setProdutosDisponiveis] = useState<any[]>([]);
   
-  // Carrinho e Formulário
+  // NOVO: Lista de Clientes para busca
+  const [baseClientes, setBaseClientes] = useState<any[]>([]); 
+  
   const [carrinho, setCarrinho] = useState<any[]>([]);
   const [cliente, setCliente] = useState("");
   const [produtoSelecionadoId, setProdutoSelecionadoId] = useState("");
   const [qtdDigitada, setQtdDigitada] = useState(1);
 
-  // MODAL (Pop-up de Detalhes)
   const [vendaSelecionada, setVendaSelecionada] = useState<any>(null);
   const [itensDaVendaSelecionada, setItensDaVendaSelecionada] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // --- 1. CARREGAR DADOS ---
   async function carregarDados() {
-    // Busca a lista de VENDAS (Agrupadas)
-    const { data } = await supabase
-      .from('vendas')
-      .select('*')
-      .order('created_at', { ascending: false });
-    setListaVendas(data || []);
+    const { data: vendasData } = await supabase.from('vendas').select('*').order('created_at', { ascending: false });
+    setListaVendas(vendasData || []);
 
-    // Busca produtos para o dropdown
-    const { data: prods } = await supabase
-      .from('produtos')
-      .select('*')
-      .gt('estoque', 0); 
-    setProdutosDisponiveis(prods || []);
+    const { data: prodsData } = await supabase.from('produtos').select('*').gt('estoque', 0); 
+    setProdutosDisponiveis(prodsData || []);
+
+    // NOVO: Busca os clientes para o autocomplete
+    const { data: clientesData } = await supabase.from('clientes').select('*').order('nome');
+    setBaseClientes(clientesData || []);
   }
 
   useEffect(() => {
     carregarDados();
   }, []);
 
-  // --- 2. LÓGICA DO CARRINHO (IGUAL ANTES) ---
   function adicionarAoCarrinho() {
     if (!produtoSelecionadoId) return alert("Selecione um produto!");
     const prodReal = produtosDisponiveis.find(p => p.id === Number(produtoSelecionadoId));
     if (!prodReal) return;
-
     if (prodReal.estoque < qtdDigitada) return alert(`Estoque insuficiente! Só temos ${prodReal.estoque} un.`);
 
     const novoItem = {
@@ -55,7 +50,6 @@ export default function Pedidos() {
       quantidade: qtdDigitada,
       total: prodReal.preco * qtdDigitada
     };
-
     setCarrinho([...carrinho, novoItem]);
     setProdutoSelecionadoId("");
     setQtdDigitada(1);
@@ -69,44 +63,34 @@ export default function Pedidos() {
 
   const totalCarrinho = carrinho.reduce((acc, item) => acc + item.total, 0);
 
-  // --- 3. FINALIZAR VENDA (A MÁGICA ESTRUTURAL) ---
   async function finalizarVenda() {
     if (!cliente || carrinho.length === 0) return alert("Preencha cliente e carrinho!");
 
-    // PASSO A: Criar o "Cabeçalho" da Venda (Gera o ID do Pedido)
+    // Cria Venda
     const { data: vendaCriada, error: erroVenda } = await supabase
       .from('vendas')
-      .insert({
-        cliente,
-        total: totalCarrinho,
-        status: "Concluído"
-      })
-      .select()
-      .single(); // Retorna o objeto criado para pegarmos o ID
+      .insert({ cliente, total: totalCarrinho, status: "Concluído" })
+      .select().single();
 
-    if (erroVenda) return alert("Erro ao criar venda: " + erroVenda.message);
+    if (erroVenda) return alert("Erro: " + erroVenda.message);
+    const idDaVenda = vendaCriada.id;
 
-    const idDaVenda = vendaCriada.id; // Pegamos o número do pedido gerado (ex: 15)
-
-    // PASSO B: Salvar os Itens vinculados a esse ID
+    // Salva Itens e Baixa Estoque
     for (const item of carrinho) {
-      // 1. Salva na tabela de itens
       await supabase.from('itens_venda').insert({
-        venda_id: idDaVenda, // <--- O Elo de Ligação
+        venda_id: idDaVenda,
         produto_nome: item.nome,
         quantidade: item.quantidade,
         preco_unitario: item.preco_unitario,
         subtotal: item.total
       });
-
-      // 2. Baixa o Estoque
       const { data: prodAtual } = await supabase.from('produtos').select('estoque').eq('id', item.id_produto).single();
       if (prodAtual) {
         await supabase.from('produtos').update({ estoque: prodAtual.estoque - item.quantidade }).eq('id', item.id_produto);
       }
     }
 
-    // PASSO C: Financeiro
+    // Financeiro
     await supabase.from('financeiro').insert({
       descricao: `Pedido #${idDaVenda} - ${cliente}`,
       valor: totalCarrinho,
@@ -114,16 +98,14 @@ export default function Pedidos() {
       status: 'pago'
     });
 
-    alert(`Pedido #${idDaVenda} gerado com sucesso!`);
+    alert(`Pedido #${idDaVenda} gerado!`);
     setCarrinho([]);
     setCliente("");
     carregarDados();
   }
 
-  // --- 4. VER DETALHES (ABRIR MODAL) ---
   async function abrirDetalhes(venda: any) {
     setVendaSelecionada(venda);
-    // Busca os itens APENAS dessa venda
     const { data } = await supabase.from('itens_venda').select('*').eq('venda_id', venda.id);
     setItensDaVendaSelecionada(data || []);
     setIsModalOpen(true);
@@ -135,13 +117,27 @@ export default function Pedidos() {
       <main className="flex-1 ml-64 p-8 bg-gray-50 min-h-screen">
         <h1 className="text-3xl font-bold text-gray-800 mb-8">Gestão de Vendas</h1>
 
-        {/* --- ÁREA DE NOVA VENDA --- */}
         <div className="bg-white p-6 rounded-lg shadow-md mb-8 border-l-4 border-blue-600">
           <div className="mb-4">
              <h2 className="font-bold text-lg text-gray-700">Novo Pedido</h2>
           </div>
+          
+          {/* --- AQUI ESTÁ A MUDANÇA DO CLIENTE --- */}
           <div className="flex gap-4 mb-4">
-             <input type="text" value={cliente} onChange={e => setCliente(e.target.value)} placeholder="Nome do Cliente" className="border p-2 rounded flex-1"/>
+             <input 
+                list="lista-clientes" // Conecta com o datalist abaixo
+                type="text" 
+                value={cliente} 
+                onChange={e => setCliente(e.target.value)} 
+                placeholder="Busque o Cliente pelo nome..." 
+                className="border p-2 rounded flex-1 outline-blue-500"
+             />
+             {/* Essa lista fica invisível, mas o input usa ela para sugerir nomes */}
+             <datalist id="lista-clientes">
+                {baseClientes.map(cli => (
+                  <option key={cli.id} value={cli.nome}>{cli.telefone ? `Tel: ${cli.telefone}` : ''}</option>
+                ))}
+             </datalist>
           </div>
           
           <div className="flex gap-2 items-end bg-gray-100 p-4 rounded mb-4">
@@ -168,7 +164,6 @@ export default function Pedidos() {
           )}
         </div>
 
-        {/* --- LISTA DE PEDIDOS (AGRUPADOS) --- */}
         <h2 className="text-xl font-bold text-gray-800 mb-4">Últimos Pedidos</h2>
         <div className="grid gap-4">
           {listaVendas.map((venda) => (
@@ -180,12 +175,7 @@ export default function Pedidos() {
               </div>
               <div className="flex items-center gap-4">
                 <span className="font-bold text-green-600">R$ {venda.total}</span>
-                <button 
-                  onClick={() => abrirDetalhes(venda)}
-                  className="bg-gray-100 text-gray-600 px-3 py-1 rounded text-sm hover:bg-gray-200 border"
-                >
-                  Ver Itens
-                </button>
+                <button onClick={() => abrirDetalhes(venda)} className="bg-gray-100 text-gray-600 px-3 py-1 rounded text-sm hover:bg-gray-200 border">Ver Itens</button>
               </div>
             </div>
           ))}
@@ -193,7 +183,6 @@ export default function Pedidos() {
 
       </main>
 
-      {/* --- MODAL (JANELA DE DETALHES) --- */}
       {isModalOpen && vendaSelecionada && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden">
@@ -201,44 +190,22 @@ export default function Pedidos() {
               <h3 className="font-bold text-lg">Pedido #{vendaSelecionada.id} - {vendaSelecionada.cliente}</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-white font-bold text-xl">✕</button>
             </div>
-            
             <div className="p-6 max-h-[60vh] overflow-y-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
-                  <tr>
-                    <th className="p-2">Qtd</th>
-                    <th className="p-2">Produto</th>
-                    <th className="p-2 text-right">Preço Un.</th>
-                    <th className="p-2 text-right">Total</th>
-                  </tr>
+                  <tr><th className="p-2">Qtd</th><th className="p-2">Produto</th><th className="p-2 text-right">Preço Un.</th><th className="p-2 text-right">Total</th></tr>
                 </thead>
                 <tbody>
                   {itensDaVendaSelecionada.map((item) => (
-                    <tr key={item.id} className="border-b last:border-0">
-                      <td className="p-3 font-bold">{item.quantidade}x</td>
-                      <td className="p-3">{item.produto_nome}</td>
-                      <td className="p-3 text-right text-gray-500">R$ {item.preco_unitario}</td>
-                      <td className="p-3 text-right font-medium">R$ {item.subtotal}</td>
-                    </tr>
+                    <tr key={item.id} className="border-b last:border-0"><td className="p-3 font-bold">{item.quantidade}x</td><td className="p-3">{item.produto_nome}</td><td className="p-3 text-right text-gray-500">R$ {item.preco_unitario}</td><td className="p-3 text-right font-medium">R$ {item.subtotal}</td></tr>
                   ))}
                 </tbody>
               </table>
-              
-              <div className="mt-6 pt-4 border-t flex justify-between items-center">
-                 <span className="text-gray-500">Status: {vendaSelecionada.status}</span>
-                 <span className="text-2xl font-bold text-gray-800">Total: R$ {vendaSelecionada.total}</span>
-              </div>
             </div>
-
-            <div className="p-4 bg-gray-50 text-right">
-              <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-white border border-gray-300 rounded hover:bg-gray-100 font-bold text-gray-600">
-                Fechar
-              </button>
-            </div>
+            <div className="p-4 bg-gray-50 text-right"><button onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-white border border-gray-300 rounded hover:bg-gray-100 font-bold text-gray-600">Fechar</button></div>
           </div>
         </div>
       )}
-
     </div>
   );
 }
