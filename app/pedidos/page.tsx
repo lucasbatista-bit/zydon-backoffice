@@ -8,7 +8,7 @@ export default function Pedidos() {
   const [historicoVendas, setHistoricoVendas] = useState<any[]>([]);
   const [produtosDisponiveis, setProdutosDisponiveis] = useState<any[]>([]);
   
-  // Dados do Carrinho (Vários itens antes de salvar)
+  // Dados do Carrinho
   const [carrinho, setCarrinho] = useState<any[]>([]);
   const [cliente, setCliente] = useState("");
   
@@ -18,14 +18,12 @@ export default function Pedidos() {
 
   // --- 1. CARREGAR DADOS INICIAIS ---
   async function carregarDados() {
-    // Busca histórico de vendas
     const { data: listaVendas } = await supabase
       .from('pedidos')
       .select('*')
       .order('created_at', { ascending: false });
     setHistoricoVendas(listaVendas || []);
 
-    // Busca produtos que têm estoque
     const { data: listaProdutos } = await supabase
       .from('produtos')
       .select('*')
@@ -38,20 +36,16 @@ export default function Pedidos() {
   }, []);
 
   // --- 2. FUNÇÕES DO CARRINHO ---
-  
   function adicionarAoCarrinho() {
     if (!produtoSelecionadoId) return alert("Selecione um produto!");
     
-    // Acha o produto completo na lista de disponíveis
     const prodReal = produtosDisponiveis.find(p => p.id === Number(produtoSelecionadoId));
     if (!prodReal) return;
 
-    // Verifica se tem estoque suficiente
     if (prodReal.estoque < qtdDigitada) {
       return alert(`Estoque insuficiente! Só temos ${prodReal.estoque} un.`);
     }
 
-    // Adiciona na lista do carrinho (Temporário)
     const novoItem = {
       id_produto: prodReal.id,
       nome: prodReal.nome,
@@ -61,42 +55,37 @@ export default function Pedidos() {
     };
 
     setCarrinho([...carrinho, novoItem]);
-    
-    // Limpa os campos para o próximo item
     setProdutoSelecionadoId("");
     setQtdDigitada(1);
   }
 
   function removerDoCarrinho(index: number) {
     const novoCarrinho = [...carrinho];
-    novoCarrinho.splice(index, 1); // Remove o item naquela posição
+    novoCarrinho.splice(index, 1);
     setCarrinho(novoCarrinho);
   }
 
-  // Calcula o total do carrinho na hora
   const totalCarrinho = carrinho.reduce((acc, item) => acc + item.total, 0);
 
 
-  // --- 3. FINALIZAR VENDA (SALVAR TUDO) ---
+  // --- 3. FINALIZAR VENDA (AGORA COM INTEGRAÇÃO FINANCEIRA) ---
   async function finalizarVenda() {
     if (!cliente) return alert("Preencha o nome do cliente!");
     if (carrinho.length === 0) return alert("O carrinho está vazio!");
 
-    // Vamos salvar item por item
-    // (Num sistema avançado faríamos uma "transação", mas aqui vamos um por um)
-    
+    // Vamos processar item por item
     for (const item of carrinho) {
+      
       // A. Salva no Histórico de Pedidos
       await supabase.from('pedidos').insert({
         cliente: cliente,
         produto: item.nome,
-        quantidade: item.quantidade, // <--- CAMPO NOVO QUE CRIAMOS
+        quantidade: item.quantidade,
         valor: item.total,
         status: "Pendente"
       });
 
       // B. Baixa o Estoque
-      // Primeiro precisamos saber o estoque ATUAL (pode ter mudado)
       const { data: prodAtual } = await supabase
         .from('produtos')
         .select('estoque')
@@ -109,18 +98,26 @@ export default function Pedidos() {
           .update({ estoque: prodAtual.estoque - item.quantidade })
           .eq('id', item.id_produto);
       }
+
+      // C. (NOVO!) Lança no Financeiro Automaticamente
+      // Isso aqui é o que faltava para atualizar seu caixa!
+      await supabase.from('financeiro').insert({
+        descricao: `Venda: ${item.quantidade}x ${item.nome} (${cliente})`,
+        valor: item.total,
+        tipo: 'entrada',    // Entra dinheiro
+        status: 'pago'      // Vamos assumir pago para cair no saldo já
+      });
     }
 
-    alert("Venda Finalizada com Sucesso!");
+    alert("Venda Finalizada! Estoque baixado e Financeiro atualizado. 💰");
     
-    // Limpa tudo
     setCarrinho([]);
     setCliente("");
-    carregarDados(); // Atualiza a lista e o estoque disponível
+    carregarDados();
   }
 
 
-  // --- 4. TELA (VISUAL) ---
+  // --- 4. TELA (VISUAL IGUAL) ---
   return (
     <div className="flex">
       <Sidebar />
@@ -130,7 +127,6 @@ export default function Pedidos() {
         {/* --- ÁREA DO CAIXA (CARRINHO) --- */}
         <div className="bg-white p-6 rounded-lg shadow-md mb-8 border-l-4 border-blue-600">
           
-          {/* Nome do Cliente (vale para todo o carrinho) */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-gray-700 mb-1">Cliente</label>
             <input 
@@ -144,7 +140,6 @@ export default function Pedidos() {
 
           <hr className="my-6 border-gray-100"/>
 
-          {/* Seleção de Produtos para Adicionar */}
           <div className="flex gap-4 items-end bg-gray-50 p-4 rounded-lg">
             <div className="flex-1">
               <label className="block text-xs text-gray-500 font-bold uppercase mb-1">Produto</label>
@@ -181,7 +176,6 @@ export default function Pedidos() {
             </button>
           </div>
 
-          {/* Lista Visual do Carrinho */}
           <div className="mt-6">
             <h3 className="font-bold text-gray-700 mb-2">Itens no Carrinho:</h3>
             {carrinho.length === 0 ? (
@@ -216,7 +210,6 @@ export default function Pedidos() {
             )}
           </div>
 
-          {/* Rodapé do Caixa */}
           <div className="mt-6 flex justify-between items-center pt-4 border-t">
             <div>
               <p className="text-gray-500 text-sm">Total da Venda</p>
@@ -235,7 +228,6 @@ export default function Pedidos() {
 
         </div>
 
-        {/* --- HISTÓRICO DE VENDAS (Aparece a QTD agora) --- */}
         <h2 className="text-xl font-bold text-gray-800 mb-4">Histórico de Pedidos</h2>
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="w-full text-left">
@@ -251,12 +243,9 @@ export default function Pedidos() {
               {historicoVendas.map((pedido) => (
                 <tr key={pedido.id} className="border-b hover:bg-gray-50">
                   <td className="p-4">{pedido.cliente}</td>
-                  
-                  {/* AQUI ESTÁ A CORREÇÃO: Mostramos a quantidade junto com o nome */}
                   <td className="p-4">
                     <span className="font-bold text-gray-800">{pedido.quantidade}x</span> {pedido.produto}
                   </td>
-                  
                   <td className="p-4 text-right font-bold text-green-600">R$ {pedido.valor}</td>
                   <td className="p-4 text-center">
                     <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
