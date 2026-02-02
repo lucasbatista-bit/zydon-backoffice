@@ -2,37 +2,49 @@
 import { Sidebar } from "@/components/Sidebar";
 import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
+import ImportarNfe from "@/components/ImportarNfe";
+import { MagnifyingGlassIcon, PlusIcon } from "@heroicons/react/24/outline"; // Ícones visuais (opcional, se não tiver, não quebra)
 
 export default function Estoque() {
-  const [produtos, setProdutos] = useState<any[]>([]);
+  const [produtos, setProdutos] = useState([]);
+  const [busca, setBusca] = useState(""); // Novo: Estado para a barra de pesquisa
+  
+  // Estados do formulário
   const [novoNome, setNovoNome] = useState("");
   const [novoPreco, setNovoPreco] = useState("");
   const [novoEstoque, setNovoEstoque] = useState("");
 
-  // Função para buscar produtos (igual fizemos na Home)
+  // --- LÓGICA DE IMPORTAÇÃO ---
+  function preencherComDadosDaNota(dados) {
+    console.log("Recebi da nota:", dados); 
+    setNovoNome(dados.nome);
+    setNovoPreco(dados.preco);
+    // Foca no campo de estoque para agilizar
+    document.getElementById("input-estoque")?.focus();
+  }
+
+  // --- LÓGICA DE BANCO DE DADOS ---
   async function carregarProdutos() {
     const { data } = await supabase.from('produtos').select('*').order('created_at', { ascending: false });
     setProdutos(data || []);
   }
 
-  // Função para SALVAR um novo produto
   async function salvarProduto() {
     if (!novoNome || !novoPreco) return alert("Preencha nome e preço!");
 
     const { error } = await supabase.from('produtos').insert({
       nome: novoNome,
-      preco: parseFloat(novoPreco.replace(',', '.')), // Troca vírgula por ponto
+      preco: parseFloat(novoPreco.toString().replace(',', '.')),
       estoque: parseInt(novoEstoque) || 0
     });
 
     if (error) {
       alert("Erro ao salvar: " + error.message);
     } else {
-      alert("Produto cadastrado!");
-      setNovoNome(""); // Limpa os campos
+      setNovoNome("");
       setNovoPreco("");
       setNovoEstoque("");
-      carregarProdutos(); // Recarrega a lista para mostrar o novo item
+      carregarProdutos();
     }
   }
 
@@ -40,77 +52,143 @@ export default function Estoque() {
     carregarProdutos();
   }, []);
 
-  return (
-    <div className="flex">
-      <Sidebar />
-      <main className="flex-1 ml-64 p-8 bg-gray-50 min-h-screen">
-        <h1 className="text-3xl font-bold text-gray-800 mb-8">Controle de Estoque</h1>
+  // Filtro de pesquisa (filtra a lista baseado no que você digita)
+  const produtosFiltrados = produtos.filter(produto => 
+    produto.nome.toLowerCase().includes(busca.toLowerCase())
+  );
 
-        {/* --- FORMULÁRIO DE CADASTRO --- */}
-        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-          <h2 className="text-lg font-bold mb-4 text-gray-700">Novo Produto</h2>
-          <div className="flex gap-4 items-end">
-            <div className="flex-1">
-              <label className="block text-sm text-gray-600">Nome do Produto</label>
-              <input 
-                type="text" 
-                value={novoNome}
-                onChange={(e) => setNovoNome(e.target.value)}
-                className="w-full border p-2 rounded outline-blue-500" 
-                placeholder="Ex: Mouse Sem Fio"
-              />
+  return (
+    <div className="flex bg-gray-100 min-h-screen">
+      <Sidebar />
+      
+      <main className="flex-1 ml-64 p-8">
+        {/* Cabeçalho da Página */}
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800">Controle de Estoque</h1>
+          <span className="bg-blue-100 text-blue-800 text-sm font-medium px-4 py-1 rounded-full">
+            Total: {produtos.length} produtos
+          </span>
+        </div>
+
+        {/* --- CARD 1: CADASTRAR / IMPORTAR --- */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-8">
+          <div className="flex flex-col md:flex-row gap-8">
+            
+            {/* Lado Esquerdo: Importação */}
+            <div className="md:w-1/3 border-r border-gray-100 pr-6">
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
+                    Agilizar Cadastro
+                </h2>
+                <ImportarNfe aoLerNota={preencherComDadosDaNota} />
             </div>
-            <div className="w-32">
-              <label className="block text-sm text-gray-600">Preço (R$)</label>
-              <input 
-                type="text" 
-                value={novoPreco}
-                onChange={(e) => setNovoPreco(e.target.value)}
-                className="w-full border p-2 rounded outline-blue-500" 
-                placeholder="0,00"
-              />
+
+            {/* Lado Direito: Formulário Manual */}
+            <div className="md:w-2/3">
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
+                    Dados do Produto
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                    <div className="md:col-span-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Produto</label>
+                        <input 
+                            type="text" 
+                            value={novoNome}
+                            onChange={(e) => setNovoNome(e.target.value)}
+                            className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                            placeholder="Ex: Teclado Mecânico"
+                        />
+                    </div>
+                    <div className="md:col-span-3">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Preço (R$)</label>
+                        <input 
+                            type="text" 
+                            value={novoPreco}
+                            onChange={(e) => setNovoPreco(e.target.value)}
+                            className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                            placeholder="0.00"
+                        />
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Qtd.</label>
+                        <input 
+                            id="input-estoque"
+                            type="number" 
+                            value={novoEstoque}
+                            onChange={(e) => setNovoEstoque(e.target.value)}
+                            className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                            placeholder="0"
+                        />
+                    </div>
+                    <div className="md:col-span-1">
+                        <button 
+                            onClick={salvarProduto}
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-lg flex items-center justify-center transition shadow-md"
+                            title="Salvar Produto"
+                        >
+                            +
+                        </button>
+                    </div>
+                </div>
             </div>
-            <div className="w-24">
-              <label className="block text-sm text-gray-600">Estoque</label>
-              <input 
-                type="number" 
-                value={novoEstoque}
-                onChange={(e) => setNovoEstoque(e.target.value)}
-                className="w-full border p-2 rounded outline-blue-500" 
-                placeholder="0"
-              />
-            </div>
-            <button 
-              onClick={salvarProduto}
-              className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 font-bold"
-            >
-              SALVAR
-            </button>
           </div>
         </div>
 
-        {/* --- LISTAGEM DE PRODUTOS --- */}
-        <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
-          <table className="w-full text-left">
-            <thead className="bg-gray-100 border-b">
+        {/* --- CARD 2: LISTA DE PRODUTOS --- */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          
+          {/* Barra de Pesquisa na Tabela */}
+          <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+            <h2 className="font-bold text-gray-700">Seus Produtos</h2>
+            <input 
+                type="text"
+                placeholder="🔍 Buscar produto..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                className="border border-gray-300 rounded-lg px-4 py-1.5 text-sm w-64 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
               <tr>
-                <th className="p-4 text-gray-600">Produto</th>
-                <th className="p-4 text-gray-600">Preço</th>
-                <th className="p-4 text-gray-600">Estoque</th>
+                <th className="p-4 font-semibold">Produto</th>
+                <th className="p-4 font-semibold">Preço Unit.</th>
+                <th className="p-4 font-semibold text-center">Status Estoque</th>
+                <th className="p-4 font-semibold text-right">Ações</th>
               </tr>
             </thead>
-            <tbody>
-              {produtos.map((produto) => (
-                <tr key={produto.id} className="border-b hover:bg-gray-50">
-                  <td className="p-4 font-medium">{produto.nome}</td>
-                  <td className="p-4 text-blue-600 font-bold">R$ {produto.preco}</td>
-                  <td className="p-4">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${produto.estoque > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {produto.estoque} un
-                    </span>
-                  </td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-gray-100">
+              {produtosFiltrados.length > 0 ? (
+                  produtosFiltrados.map((produto) => (
+                    <tr key={produto.id} className="hover:bg-blue-50 transition duration-150">
+                      <td className="p-4 text-gray-800 font-medium">{produto.nome}</td>
+                      <td className="p-4 text-gray-600">
+                        R$ {parseFloat(produto.preco).toFixed(2).replace('.', ',')}
+                      </td>
+                      <td className="p-4 text-center">
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${
+                            produto.estoque > 5 
+                            ? 'bg-green-100 text-green-700 border border-green-200' 
+                            : produto.estoque > 0 
+                                ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
+                                : 'bg-red-100 text-red-700 border border-red-200'
+                        }`}>
+                          {produto.estoque} un
+                        </span>
+                      </td>
+                      <td className="p-4 text-right text-gray-400 text-sm">
+                        <button className="hover:text-blue-600 mr-3">Editar</button>
+                        <button className="hover:text-red-600">Excluir</button>
+                      </td>
+                    </tr>
+                  ))
+              ) : (
+                  <tr>
+                      <td colSpan={4} className="p-8 text-center text-gray-400">
+                          Nenhum produto encontrado.
+                      </td>
+                  </tr>
+              )}
             </tbody>
           </table>
         </div>
