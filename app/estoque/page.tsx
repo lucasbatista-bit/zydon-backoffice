@@ -196,4 +196,4 @@ export default function Estoque() {
       </main>
     </div>
   );
-}
+}// Atualizando estoque na Vercel
