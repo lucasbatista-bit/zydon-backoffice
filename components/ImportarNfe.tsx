@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, ChangeEvent } from 'react';
 import { XMLParser } from 'fast-xml-parser';
 
-export default function ImportarNfe({ aoLerNota }) {
+// Aqui definimos as regras do que esse componente aceita
+interface ImportarNfeProps {
+  aoLerNota: (dados: { nome: string; preco: string; ean: string; ncm: string; sku: string }) => void;
+}
+
+export default function ImportarNfe({ aoLerNota }: ImportarNfeProps) {
   const [loading, setLoading] = useState(false);
 
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
+  const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
 
     setLoading(true);
@@ -14,6 +19,11 @@ export default function ImportarNfe({ aoLerNota }) {
     reader.onload = (e) => {
       const xmlContent = e.target?.result;
       
+      if (typeof xmlContent !== 'string') {
+          setLoading(false);
+          return;
+      }
+
       const parser = new XMLParser({
         ignoreAttributes: false,
         attributeNamePrefix: ""
@@ -28,22 +38,21 @@ export default function ImportarNfe({ aoLerNota }) {
             const listaDet = Array.isArray(dadosNfe.det) ? dadosNfe.det : [dadosNfe.det];
             const primeiroProduto = listaDet[0];
 
-            // Pega dados seguros e AGORA PEGA OS NOVOS CAMPOS TAMBÉM
             const nomeProduto = primeiroProduto?.prod?.xProd || "";
             const precoProduto = primeiroProduto?.prod?.vUnCom || "";
-            const eanProduto = primeiroProduto?.prod?.cEAN || ""; // Código de Barras
-            const ncmProduto = primeiroProduto?.prod?.NCM || ""; // Código Fiscal
-            const skuProduto = primeiroProduto?.prod?.cProd || ""; // Código do Produto no fornecedor
+            const eanProduto = primeiroProduto?.prod?.cEAN || ""; 
+            const ncmProduto = primeiroProduto?.prod?.NCM || ""; 
+            const skuProduto = primeiroProduto?.prod?.cProd || ""; 
 
-            console.log("📦 Produto:", nomeProduto, precoProduto, eanProduto);
+            console.log("📦 Produto Lido:", nomeProduto);
             
             if (aoLerNota) {
                 aoLerNota({ 
-                  nome: nomeProduto, 
-                  preco: precoProduto,
-                  ean: eanProduto,
-                  ncm: ncmProduto,
-                  sku: skuProduto
+                  nome: String(nomeProduto), 
+                  preco: String(precoProduto),
+                  ean: String(eanProduto === "SEM GTIN" ? "" : eanProduto),
+                  ncm: String(ncmProduto),
+                  sku: String(skuProduto)
                 });
             }
             
@@ -57,7 +66,8 @@ export default function ImportarNfe({ aoLerNota }) {
         alert("Erro ao processar o arquivo.");
       } finally {
         setLoading(false);
-        event.target.value = ''; 
+        // Limpa o input
+        if (event.target) event.target.value = ''; 
       }
     };
 
