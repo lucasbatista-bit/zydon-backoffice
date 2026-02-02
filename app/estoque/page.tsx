@@ -3,27 +3,23 @@ import { Sidebar } from "@/components/Sidebar";
 import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
 import ImportarNfe from "@/components/ImportarNfe";
-import { MagnifyingGlassIcon, PlusIcon } from "@heroicons/react/24/outline"; // Ícones visuais (opcional, se não tiver, não quebra)
+// REMOVEMOS A IMPORTAÇÃO DOS ÍCONES QUE ESTAVA DANDO ERRO
 
 export default function Estoque() {
   const [produtos, setProdutos] = useState([]);
-  const [busca, setBusca] = useState(""); // Novo: Estado para a barra de pesquisa
+  const [busca, setBusca] = useState(""); 
   
-  // Estados do formulário
   const [novoNome, setNovoNome] = useState("");
   const [novoPreco, setNovoPreco] = useState("");
   const [novoEstoque, setNovoEstoque] = useState("");
 
-  // --- LÓGICA DE IMPORTAÇÃO ---
   function preencherComDadosDaNota(dados) {
     console.log("Recebi da nota:", dados); 
     setNovoNome(dados.nome);
     setNovoPreco(dados.preco);
-    // Foca no campo de estoque para agilizar
     document.getElementById("input-estoque")?.focus();
   }
 
-  // --- LÓGICA DE BANCO DE DADOS ---
   async function carregarProdutos() {
     const { data } = await supabase.from('produtos').select('*').order('created_at', { ascending: false });
     setProdutos(data || []);
@@ -52,7 +48,6 @@ export default function Estoque() {
     carregarProdutos();
   }, []);
 
-  // Filtro de pesquisa (filtra a lista baseado no que você digita)
   const produtosFiltrados = produtos.filter(produto => 
     produto.nome.toLowerCase().includes(busca.toLowerCase())
   );
@@ -62,7 +57,6 @@ export default function Estoque() {
       <Sidebar />
       
       <main className="flex-1 ml-64 p-8">
-        {/* Cabeçalho da Página */}
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-gray-800">Controle de Estoque</h1>
           <span className="bg-blue-100 text-blue-800 text-sm font-medium px-4 py-1 rounded-full">
@@ -73,8 +67,6 @@ export default function Estoque() {
         {/* --- CARD 1: CADASTRAR / IMPORTAR --- */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-8">
           <div className="flex flex-col md:flex-row gap-8">
-            
-            {/* Lado Esquerdo: Importação */}
             <div className="md:w-1/3 border-r border-gray-100 pr-6">
                 <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
                     Agilizar Cadastro
@@ -82,7 +74,6 @@ export default function Estoque() {
                 <ImportarNfe aoLerNota={preencherComDadosDaNota} />
             </div>
 
-            {/* Lado Direito: Formulário Manual */}
             <div className="md:w-2/3">
                 <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
                     Dados do Produto
@@ -122,7 +113,7 @@ export default function Estoque() {
                     <div className="md:col-span-1">
                         <button 
                             onClick={salvarProduto}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-lg flex items-center justify-center transition shadow-md"
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-lg flex items-center justify-center transition shadow-md font-bold text-xl"
                             title="Salvar Produto"
                         >
                             +
@@ -136,16 +127,19 @@ export default function Estoque() {
         {/* --- CARD 2: LISTA DE PRODUTOS --- */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           
-          {/* Barra de Pesquisa na Tabela */}
           <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
             <h2 className="font-bold text-gray-700">Seus Produtos</h2>
-            <input 
-                type="text"
-                placeholder="🔍 Buscar produto..."
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                className="border border-gray-300 rounded-lg px-4 py-1.5 text-sm w-64 focus:outline-none focus:border-blue-500"
-            />
+            <div className="relative">
+                {/* Usamos emoji de lupa aqui */}
+                <span className="absolute left-3 top-2 text-gray-400">🔍</span>
+                <input 
+                    type="text"
+                    placeholder="Buscar produto..."
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    className="border border-gray-300 rounded-lg pl-10 pr-4 py-1.5 text-sm w-64 focus:outline-none focus:border-blue-500"
+                />
+            </div>
           </div>
 
           <table className="w-full text-left border-collapse">
@@ -196,4 +190,4 @@ export default function Estoque() {
       </main>
     </div>
   );
-}// Atualizando estoque na Vercel
+}
