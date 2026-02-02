@@ -37,9 +37,6 @@ export function Sidebar() {
           <Link href="/clientes" className="p-3 hover:bg-slate-800 rounded transition-colors block border-l-4 border-transparent hover:border-purple-500">
            👥 Clientes
           </Link>
-          <Link href="/importar" className="p-3 hover:bg-slate-800 rounded transition-colors block text-yellow-400">
-            📥 Importar XML/CSV
-          </Link>
         </nav>
       </div>
 
