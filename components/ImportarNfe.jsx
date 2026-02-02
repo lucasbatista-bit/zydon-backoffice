@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { XMLParser } from 'fast-xml-parser';
 
+// Note que aqui removemos o ": any" que estava causando o erro
 export default function ImportarNfe({ aoLerNota }) {
   const [loading, setLoading] = useState(false);
 
@@ -22,20 +23,17 @@ export default function ImportarNfe({ aoLerNota }) {
       try {
         const result = parser.parse(xmlContent);
         
-        // Caminhos possíveis para encontrar os dados na NFe
         const dadosNfe = result.nfeProc?.NFe?.infNFe || result.NFe?.infNFe;
         
         if (dadosNfe) {
-            // Garante que pegamos o produto, mesmo se for só 1 ou uma lista
             const listaDet = Array.isArray(dadosNfe.det) ? dadosNfe.det : [dadosNfe.det];
             const primeiroProduto = listaDet[0];
 
             const nomeProduto = primeiroProduto.prod.xProd;
-            const precoProduto = primeiroProduto.prod.vUnCom; // Preço unitário
+            const precoProduto = primeiroProduto.prod.vUnCom; 
 
             console.log("📦 Produto Encontrado:", nomeProduto, precoProduto);
             
-            // Manda os dados para fora!
             if (aoLerNota) {
                 aoLerNota({ nome: nomeProduto, preco: precoProduto });
             }
@@ -50,7 +48,6 @@ export default function ImportarNfe({ aoLerNota }) {
         alert("Erro ao ler o arquivo XML.");
       } finally {
         setLoading(false);
-        // Limpa o input para poder selecionar o mesmo arquivo de novo se quiser
         event.target.value = ''; 
       }
     };
