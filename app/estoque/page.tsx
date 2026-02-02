@@ -41,6 +41,27 @@ export default function Estoque() {
     }
   }
 
+  // --- NOVA FUNÇÃO: EXCLUIR ---
+  async function excluirProduto(id: number) {
+    // 1. Pergunta de segurança
+    if (confirm("Tem certeza que deseja excluir este produto?")) {
+        
+        // 2. Manda apagar no banco
+        const { error } = await supabase
+            .from('produtos')
+            .delete()
+            .eq('id', id);
+
+        if (error) {
+            alert("Erro ao excluir: " + error.message);
+        } else {
+            // 3. Atualiza a lista na tela
+            carregarProdutos();
+        }
+    }
+  }
+  // ---------------------------
+
   useEffect(() => {
     carregarProdutos();
   }, []);
@@ -61,11 +82,12 @@ export default function Estoque() {
                 <ImportarNfe aoLerNota={preencherComDadosDaNota} />
             </div>
             <div className="md:w-2/3 grid gap-4">
-                <input type="text" placeholder="Nome do Produto" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="border p-2 rounded" />
+                <label className="block text-sm font-medium text-gray-700">Dados do Novo Produto</label>
+                <input type="text" placeholder="Nome do Produto" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="border p-2 rounded w-full" />
                 <div className="flex gap-4">
-                    <input type="text" placeholder="Preço" value={novoPreco} onChange={e => setNovoPreco(e.target.value)} className="border p-2 rounded w-1/2" />
-                    <input type="number" placeholder="Qtd" value={novoEstoque} onChange={e => setNovoEstoque(e.target.value)} className="border p-2 rounded w-1/2" />
-                    <button onClick={salvarProduto} className="bg-blue-600 text-white px-6 rounded font-bold">+</button>
+                    <input type="text" placeholder="Preço (R$)" value={novoPreco} onChange={e => setNovoPreco(e.target.value)} className="border p-2 rounded w-1/3" />
+                    <input type="number" placeholder="Qtd" value={novoEstoque} onChange={e => setNovoEstoque(e.target.value)} className="border p-2 rounded w-1/3" />
+                    <button onClick={salvarProduto} className="bg-blue-600 text-white w-1/3 rounded font-bold hover:bg-blue-700 transition">SALVAR</button>
                 </div>
             </div>
         </div>
@@ -73,19 +95,34 @@ export default function Estoque() {
         {/* TABELA */}
         <div className="bg-white rounded-xl shadow-sm p-4">
             <div className="mb-4 relative">
-                <span className="absolute left-3 top-2">🔍</span>
-                <input type="text" placeholder="Buscar..." value={busca} onChange={e => setBusca(e.target.value)} className="border pl-10 p-2 rounded w-full" />
+                <span className="absolute left-3 top-2 text-gray-400">🔍</span>
+                <input type="text" placeholder="Buscar produto..." value={busca} onChange={e => setBusca(e.target.value)} className="border pl-10 p-2 rounded w-full outline-blue-500" />
             </div>
             <table className="w-full text-left">
-                <thead className="bg-gray-50 border-b">
-                    <tr><th className="p-4">Produto</th><th className="p-4">Preço</th><th className="p-4">Estoque</th></tr>
+                <thead className="bg-gray-50 border-b text-gray-500 text-sm">
+                    <tr><th className="p-4">Produto</th><th className="p-4">Preço</th><th className="p-4">Estoque</th><th className="p-4 text-right">Ações</th></tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y">
                     {produtosFiltrados.map(p => (
-                        <tr key={p.id} className="border-b">
-                            <td className="p-4">{p.nome}</td>
-                            <td className="p-4 text-blue-600">R$ {p.preco}</td>
-                            <td className="p-4">{p.estoque} un</td>
+                        <tr key={p.id} className="hover:bg-gray-50">
+                            <td className="p-4 font-medium">{p.nome}</td>
+                            <td className="p-4 text-blue-600 font-bold">R$ {p.preco}</td>
+                            <td className="p-4">
+                                <span className={`px-2 py-1 rounded text-xs font-bold ${p.estoque > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                    {p.estoque} un
+                                </span>
+                            </td>
+                            <td className="p-4 text-right text-sm space-x-2">
+                                <button className="text-gray-400 hover:text-blue-600">Editar</button>
+                                
+                                {/* AQUI ESTÁ O BOTÃO COM A AÇÃO DE EXCLUIR */}
+                                <button 
+                                    onClick={() => excluirProduto(p.id)} 
+                                    className="text-gray-400 hover:text-red-600 transition"
+                                >
+                                    Excluir
+                                </button>
+                            </td>
                         </tr>
                     ))}
                 </tbody>
