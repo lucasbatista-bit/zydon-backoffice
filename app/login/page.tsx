@@ -1,78 +1,87 @@
 'use client'
-import { supabase } from "@/lib/supabase";
-import { useState } from "react";
+import { supabase } from "@/lib/supabase"; // <--- Usando nossa conexão padrão
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 export default function Login() {
-  const router = useRouter(); // Ferramenta para mudar de página
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
-  async function handleLogin() {
+  const handleLogin = async () => {
     setLoading(true);
-    
-    // Pergunta ao Supabase se o usuário existe
+    setError(null);
+
+    // Login usando a conexão padrão do projeto
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      alert("Erro: " + error.message);
+      console.error("Erro Login:", error);
+      setError("Erro ao entrar. Verifique e-mail e senha.");
       setLoading(false);
     } else {
-      // SUCESSO! O Supabase guarda o "crachá" no navegador automaticamente.
-      // Vamos redirecionar para o Dashboard.
+      // Sucesso! Vamos para a Home
       router.push("/");
-      router.refresh(); // Força o sistema a perceber que mudou o status
+      router.refresh();
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900">
-      <div className="bg-white p-8 rounded-lg shadow-2xl w-96">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 p-4">
+      <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
+        
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-blue-600">Zydon</h1>
-          <p className="text-gray-500">Acesso Restrito</p>
+          <h1 className="text-2xl font-bold text-gray-800">Bem-vindo de volta</h1>
+          <p className="text-sm text-gray-500">Acesse o portal Zydon</p>
         </div>
 
-        <div className="space-y-4">
+        {error && (
+          <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-4 border border-red-200 text-center">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-5">
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-1">E-mail</label>
-            <input 
-              type="email" 
+            <input
+              type="email"
+              placeholder="seu@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border p-3 rounded outline-blue-500"
-              placeholder="admin@zydon.com"
+              className="w-full p-3 rounded-lg bg-gray-100 border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 transition duration-200"
             />
           </div>
 
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-1">Senha</label>
-            <input 
-              type="password" 
+            <input
+              type="password"
+              placeholder="Sua senha secreta"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border p-3 rounded outline-blue-500"
-              placeholder="••••••••"
-              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              className="w-full p-3 rounded-lg bg-gray-100 border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 transition duration-200"
+              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
             />
           </div>
 
-          <button 
+          <button
             onClick={handleLogin}
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700 transition disabled:opacity-50"
+            className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition transform active:scale-95 shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             {loading ? "Entrando..." : "ACESSAR SISTEMA"}
           </button>
         </div>
 
-        <p className="text-xs text-center text-gray-400 mt-6">
-          Esqueceu a senha? Chame o CTO.
-        </p>
+        <div className="mt-6 text-center text-xs text-gray-400">
+          Zydon Backoffice &copy; 2024
+        </div>
       </div>
     </div>
   );
