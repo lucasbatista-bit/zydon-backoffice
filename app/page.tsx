@@ -2,98 +2,141 @@
 import { Sidebar } from "@/components/Sidebar";
 import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
-import Link from 'next/link';
 
-export default function Home() {
-  const [saldo, setSaldo] = useState(0);
-  const [qtdVendas, setQtdVendas] = useState(0);
-  const [qtdProdutos, setQtdProdutos] = useState(0);
-  const [status, setStatus] = useState("🟡 Calculando indicadores...");
+export default function Dashboard() {
+  // Estados para os Indicadores (KPIs)
+  const [totalVendas, setTotalVendas] = useState(0);
+  const [qtdPedidos, setQtdPedidos] = useState(0);
+  const [qtdClientes, setQtdClientes] = useState(0);
+  const [produtosBaixoEstoque, setProdutosBaixoEstoque] = useState<any[]>([]);
+  const [ultimosPedidos, setUltimosPedidos] = useState<any[]>([]);
 
   useEffect(() => {
-    async function carregarDashboard() {
-      try {
-        // 1. Busca Saldo (Financeiro continua igual)
-        const { data: financeiro } = await supabase.from('financeiro').select('*');
-        if (financeiro) {
-          const total = financeiro.reduce((acc, item) => {
-            return item.tipo === 'entrada' ? acc + item.valor : acc - item.valor;
-          }, 0);
-          setSaldo(total);
-        }
-
-        // 2. Busca Quantidade de Vendas (AGORA NA TABELA NOVA "VENDAS")
-        const { count: totalVendas } = await supabase
-          .from('vendas') // <--- Mudamos aqui!
-          .select('*', { count: 'exact', head: true });
-        
-        setQtdVendas(totalVendas || 0);
-
-        // 3. Busca Quantidade de Produtos
-        const { count: totalProdutos } = await supabase.from('produtos').select('*', { count: 'exact', head: true });
-        setQtdProdutos(totalProdutos || 0);
-
-        setStatus("🟢 Dados atualizados em tempo real.");
-      } catch (error) {
-        setStatus("🔴 Erro ao carregar dados.");
-      }
-    }
-
-    carregarDashboard();
+    carregarDadosDashboard();
   }, []);
 
+  async function carregarDadosDashboard() {
+    // 1. Buscando Totais de Vendas e Pedidos
+    const { data: pedidos } = await supabase.from('pedidos').select('valor_total');
+    if (pedidos) {
+        setQtdPedidos(pedidos.length);
+        // Soma o total de vendas
+        const total = pedidos.reduce((acc, pedido) => acc + (pedido.valor_total || 0), 0);
+        setTotalVendas(total);
+    }
+
+    // 2. Buscando Quantidade de Clientes
+    // 'count' retorna o número de linhas sem precisar baixar os dados todos
+    const { count } = await supabase.from('Cliente').select('*', { count: 'exact', head: true });
+    setQtdClientes(count || 0);
+
+    // 3. Buscando Produtos com Estoque Crítico (Menor que 5 itens)
+    const { data: produtosCriticos } = await supabase
+        .from('produtos')
+        .select('*')
+        .lt('estoque', 5) // lt = less than (menor que)
+        .limit(5); // Pega só os 5 primeiros para não lotar a tela
+    setProdutosBaixoEstoque(produtosCriticos || []);
+
+    // 4. Buscando os 5 Últimos Pedidos
+    const { data: ultimos } = await supabase
+        .from('pedidos')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(5);
+    setUltimosPedidos(ultimos || []);
+  }
+
   return (
-    <div className="flex">
+    <div className="flex bg-gray-100 min-h-screen">
       <Sidebar />
-      <main className="flex-1 ml-64 p-8 bg-gray-50 min-h-screen">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">Visão Geral</h1>
-          <p className="text-gray-500 text-sm mt-1">{status}</p>
-        </header>
+      <main className="flex-1 ml-64 p-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">Visão Geral</h1>
+        <p className="text-gray-500 mb-8">Bem-vindo ao painel de controle da Zydon.</p>
 
-        {/* --- OS CARDS (INDICADORES) --- */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          
-          {/* Card Financeiro */}
-          <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
-            <h3 className="text-gray-500 text-sm font-bold uppercase">Saldo em Caixa</h3>
-            <p className={`text-3xl font-bold mt-2 ${saldo >= 0 ? 'text-gray-800' : 'text-red-600'}`}>
-              R$ {saldo.toFixed(2)}
-            </p>
-            <p className="text-xs text-gray-400 mt-2">Atualizado agora</p>
-          </div>
+        {/* --- 1. CARTÕES DE INDICADORES (KPIs) --- */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            
+            {/* Faturamento Total */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-l-4 border-green-500">
+                <div className="text-gray-500 text-xs font-bold uppercase mb-1">Faturamento Total</div>
+                <div className="text-2xl font-bold text-green-700">
+                    R$ {totalVendas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </div>
+            </div>
 
-          {/* Card Vendas */}
-          <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-blue-500">
-            <h3 className="text-gray-500 text-sm font-bold uppercase">Vendas Realizadas</h3>
-            <p className="text-3xl font-bold text-gray-800 mt-2">{qtdVendas}</p>
-            <p className="text-xs text-gray-400 mt-2">Pedidos confirmados (Nova Estrutura)</p>
-          </div>
+            {/* Total de Pedidos */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-l-4 border-blue-500">
+                <div className="text-gray-500 text-xs font-bold uppercase mb-1">Vendas Realizadas</div>
+                <div className="text-2xl font-bold text-gray-800">{qtdPedidos}</div>
+            </div>
 
-          {/* Card Estoque */}
-          <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-orange-500">
-            <h3 className="text-gray-500 text-sm font-bold uppercase">Produtos Ativos</h3>
-            <p className="text-3xl font-bold text-gray-800 mt-2">{qtdProdutos}</p>
-            <p className="text-xs text-gray-400 mt-2">Itens no catálogo</p>
-          </div>
+            {/* Total de Clientes */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-l-4 border-purple-500">
+                <div className="text-gray-500 text-xs font-bold uppercase mb-1">Base de Clientes</div>
+                <div className="text-2xl font-bold text-gray-800">{qtdClientes}</div>
+            </div>
 
+            {/* Alerta de Estoque */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-l-4 border-red-500">
+                <div className="text-gray-500 text-xs font-bold uppercase mb-1">Estoque Crítico</div>
+                <div className="text-2xl font-bold text-red-600">
+                    {produtosBaixoEstoque.length} <span className="text-sm text-gray-400 font-normal">produtos</span>
+                </div>
+            </div>
         </div>
 
-        {/* Área de Atalhos Rápidos */}
-        <h2 className="text-xl font-bold text-gray-800 mb-4">Acesso Rápido</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Link href="/pedidos" className="block p-6 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition">
-                <span className="text-2xl">🛒</span>
-                <span className="ml-3 font-bold text-blue-800">Nova Venda</span>
-                <p className="text-sm text-blue-600 mt-1 ml-9">Registrar pedido agrupado</p>
-            </Link>
-            <Link href="/estoque" className="block p-6 bg-green-50 border border-green-100 rounded-lg hover:bg-green-100 transition">
-                <span className="text-2xl">📦</span>
-                <span className="ml-3 font-bold text-green-800">Cadastrar Produto</span>
-                <p className="text-sm text-green-600 mt-1 ml-9">Adicionar item ao estoque</p>
-            </Link>
-        </div>
+        {/* --- 2. ÁREA DE DETALHES (Duas Colunas) --- */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            {/* Últimas Vendas */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    🛒 Últimas Vendas
+                </h3>
+                <div className="space-y-4">
+                    {ultimosPedidos.length === 0 ? (
+                        <p className="text-gray-400 text-sm">Nenhuma venda recente.</p>
+                    ) : (
+                        ultimosPedidos.map(pedido => (
+                            <div key={pedido.id} className="flex justify-between items-center border-b pb-3 last:border-0 last:pb-0">
+                                <div>
+                                    <div className="font-bold text-sm text-gray-700">{pedido.cliente}</div>
+                                    <div className="text-xs text-gray-500">{new Date(pedido.created_at).toLocaleDateString('pt-BR')}</div>
+                                </div>
+                                <div className="font-bold text-green-600 text-sm">
+                                    R$ {(pedido.valor_total || 0).toFixed(2)}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+                <a href="/pedidos" className="block mt-4 text-center text-blue-600 text-sm hover:underline">Ver histórico completo →</a>
+            </div>
 
+            {/* Alerta de Estoque Baixo */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    ⚠️ Reposição Necessária
+                </h3>
+                <div className="space-y-4">
+                    {produtosBaixoEstoque.length === 0 ? (
+                        <p className="text-green-600 text-sm font-medium">✅ Todo o estoque está saudável!</p>
+                    ) : (
+                        produtosBaixoEstoque.map(prod => (
+                            <div key={prod.id} className="flex justify-between items-center bg-red-50 p-3 rounded-lg border border-red-100">
+                                <div className="font-medium text-red-800 text-sm">{prod.nome}</div>
+                                <div className="bg-white px-2 py-1 rounded text-xs font-bold text-red-600 shadow-sm">
+                                    Restam: {prod.estoque}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+                <a href="/estoque" className="block mt-4 text-center text-blue-600 text-sm hover:underline">Gerenciar estoque →</a>
+            </div>
+
+        </div>
       </main>
     </div>
   );
