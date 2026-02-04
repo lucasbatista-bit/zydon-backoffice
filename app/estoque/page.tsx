@@ -7,9 +7,9 @@ import ImportarNfe from "@/components/ImportarNfe";
 export default function Estoque() {
   const [produtos, setProdutos] = useState<any[]>([]);
   const [busca, setBusca] = useState("");
-  const [idEdicao, setIdEdicao] = useState<any>(null); // Guarda o ID se estivermos editando
+  const [idEdicao, setIdEdicao] = useState<any>(null);
   
-  // Estados do formulário (incluindo os novos)
+  // Dados do Produto
   const [novoNome, setNovoNome] = useState("");
   const [novoPreco, setNovoPreco] = useState("");
   const [novoEstoque, setNovoEstoque] = useState("");
@@ -17,25 +17,43 @@ export default function Estoque() {
   const [novoSku, setNovoSku] = useState("");
   const [novoNcm, setNovoNcm] = useState("");
 
+  // Dados Financeiros da Nota (Para lançamento automático)
+  const [lancarFinanceiro, setLancarFinanceiro] = useState(false);
+  const [dadosFinanceiros, setDadosFinanceiros] = useState({
+    valorTotal: 0,
+    dataEmissao: "",
+    numeroNota: ""
+  });
+
   // Função chamada pelo Leitor de XML
   function preencherComDadosDaNota(dados: any) {
     setNovoNome(dados.nome);
     setNovoPreco(dados.preco);
-    setNovoEan(dados.ean === "SEM GTIN" ? "" : dados.ean); // Limpa se vier "SEM GTIN"
+    setNovoEan(dados.ean);
     setNovoNcm(dados.ncm);
     setNovoSku(dados.sku);
+    
+    // Sugere a quantidade da nota no campo de estoque
+    setNovoEstoque(dados.quantidade.toString());
+
+    // Prepara o financeiro
+    setDadosFinanceiros({
+        valorTotal: dados.valorTotalNota,
+        dataEmissao: dados.dataEmissao,
+        numeroNota: dados.numeroNota
+    });
+    setLancarFinanceiro(true); // Marca a caixinha automaticamente
+
     document.getElementById("input-nome")?.focus();
   }
 
-  // Buscar produtos do banco
   async function carregarProdutos() {
     const { data } = await supabase.from('produtos').select('*').order('created_at', { ascending: false });
     setProdutos(data || []);
   }
 
-  // --- FUNÇÃO SALVAR (Serve para CRIAR e EDITAR) ---
   async function salvarProduto() {
-    if (!novoNome || !novoPreco) return alert("Preencha pelo menos nome e preço!");
+    if (!novoNome || !novoPreco) return alert("Preencha nome e preço!");
 
     const dadosDoProduto = {
       nome: novoNome,
@@ -46,23 +64,50 @@ export default function Estoque() {
       ncm: novoNcm
     };
 
+    // 1. SALVAR/ATUALIZAR PRODUTO
     if (idEdicao) {
-        // MODO EDIÇÃO: Atualiza o existente
+        // Modo Edição: Atualiza
         const { error } = await supabase.from('produtos').update(dadosDoProduto).eq('id', idEdicao);
-        if (error) alert("Erro ao atualizar: " + error.message);
-        else alert("Produto atualizado com sucesso!");
+        if (error) alert("Erro produto: " + error.message);
+        else alert("Produto atualizado!");
     } else {
-        // MODO CRIAÇÃO: Cria um novo
+        // Modo Criação: Novo
         const { error } = await supabase.from('produtos').insert(dadosDoProduto);
-        if (error) alert("Erro ao salvar: " + error.message);
+        if (error) alert("Erro produto: " + error.message);
         else alert("Produto cadastrado!");
+    }
+
+    // 2. LANÇAR NO FINANCEIRO (Se a caixinha estiver marcada)
+    if (lancarFinanceiro && dadosFinanceiros.valorTotal > 0) {
+        const descricaoFin = `Compra NF ${dadosFinanceiros.numeroNota} - ${novoNome}`; 
+        
+        // Define as datas
+        // Data Entrada = Data da Emissão da Nota (ou Hoje se não tiver)
+        // Data Vencimento = Igual à Entrada (Padrão "À vista", ajustável manualmente depois)
+        const dataLancamento = dadosFinanceiros.dataEmissao || new Date().toISOString();
+
+        const { error: erroFin } = await supabase.from('financeiro').insert({
+            descricao: descricaoFin,
+            valor: dadosFinanceiros.valorTotal,
+            tipo: 'saida', // Despesa
+            status: 'Pendente', // Novo campo: Status inicial
+            categoria: 'Compra de Estoque', // Novo campo: Categoria fixa
+            data_entrada: dataLancamento, // Novo campo: Data da Nota
+            data_vencimento: dataLancamento // Novo campo: Vencimento (mesmo dia por padrão)
+        });
+
+        if (erroFin) {
+            console.error(erroFin);
+            alert("Atenção: Produto salvo, mas erro ao lançar financeiro: " + erroFin.message);
+        } else {
+            alert(`💰 Despesa de R$ ${dadosFinanceiros.valorTotal} lançada no Financeiro (Pendente)!`);
+        }
     }
 
     limparFormulario();
     carregarProdutos();
   }
 
-  // Prepara o formulário para edição
   function iniciarEdicao(produto: any) {
     setIdEdicao(produto.id);
     setNovoNome(produto.nome);
@@ -72,12 +117,14 @@ export default function Estoque() {
     setNovoSku(produto.sku || "");
     setNovoNcm(produto.ncm || "");
     
-    // Rola a tela para o topo do formulário
+    // Ao editar manual, desmarcamos financeiro pra evitar duplicidade
+    setLancarFinanceiro(false);
+    
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function excluirProduto(id: number) {
-    if (confirm("Tem certeza que deseja excluir?")) {
+    if (confirm("Excluir produto?")) {
         supabase.from('produtos').delete().eq('id', id).then(() => carregarProdutos());
     }
   }
@@ -90,16 +137,18 @@ export default function Estoque() {
     setNovoSku("");
     setNovoNcm("");
     setIdEdicao(null);
+    setLancarFinanceiro(false);
+    setDadosFinanceiros({ valorTotal: 0, dataEmissao: "", numeroNota: "" });
   }
 
   useEffect(() => {
     carregarProdutos();
   }, []);
 
-  const produtosFiltrados = produtos.filter(produto => 
-    produto.nome.toLowerCase().includes(busca.toLowerCase()) ||
-    (produto.ean && produto.ean.includes(busca)) || // Busca também por EAN
-    (produto.sku && produto.sku.includes(busca))    // Busca também por SKU
+  const produtosFiltrados = produtos.filter(p => 
+    p.nome.toLowerCase().includes(busca.toLowerCase()) ||
+    (p.ean && p.ean.includes(busca)) || 
+    (p.sku && p.sku.includes(busca))
   );
 
   return (
@@ -113,13 +162,9 @@ export default function Estoque() {
           
           <div className="flex justify-between items-center mb-4">
               <h2 className={`text-lg font-bold uppercase tracking-wide ${idEdicao ? 'text-yellow-700' : 'text-gray-500'}`}>
-                {idEdicao ? '✏️ Editando Produto' : '✨ Novo Produto'}
+                {idEdicao ? '✏️ Editando Produto' : '✨ Entrada de Produto'}
               </h2>
-              {idEdicao && (
-                  <button onClick={limparFormulario} className="text-sm text-red-600 hover:underline">
-                      Cancelar Edição
-                  </button>
-              )}
+              {idEdicao && <button onClick={limparFormulario} className="text-sm text-red-600 hover:underline">Cancelar</button>}
           </div>
 
           <div className="flex flex-col xl:flex-row gap-8">
@@ -132,44 +177,67 @@ export default function Estoque() {
 
             {/* Formulário (Direita) */}
             <div className={idEdicao ? "w-full" : "xl:w-3/4"}>
+                {/* Linha 1 */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                     <div className="md:col-span-2">
                         <label className="text-xs font-bold text-gray-500 uppercase">Nome do Produto</label>
-                        <input id="input-nome" type="text" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ex: Monitor 24pol" />
+                        <input id="input-nome" type="text" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">Preço (R$)</label>
-                        <input type="text" value={novoPreco} onChange={e => setNovoPreco(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
+                        <label className="text-xs font-bold text-gray-500 uppercase">Preço Venda (R$)</label>
+                        <input type="text" value={novoPreco} onChange={e => setNovoPreco(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">Estoque</label>
-                        <input type="number" value={novoEstoque} onChange={e => setNovoEstoque(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" />
+                        <label className="text-xs font-bold text-gray-500 uppercase">Estoque (Qtd)</label>
+                        <input type="number" value={novoEstoque} onChange={e => setNovoEstoque(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-600" />
                     </div>
                 </div>
 
-                {/* Novos Campos */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                {/* Linha 2 */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                     <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">EAN (Cód. Barras)</label>
-                        <input type="text" value={novoEan} onChange={e => setNovoEan(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="789..." />
+                        <label className="text-xs font-bold text-gray-500 uppercase">EAN</label>
+                        <input type="text" value={novoEan} onChange={e => setNovoEan(e.target.value)} className="w-full border p-2 rounded outline-none" placeholder="789..." />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">SKU (Cód. Interno)</label>
-                        <input type="text" value={novoSku} onChange={e => setNovoSku(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="COD-001" />
+                        <label className="text-xs font-bold text-gray-500 uppercase">SKU</label>
+                        <input type="text" value={novoSku} onChange={e => setNovoSku(e.target.value)} className="w-full border p-2 rounded outline-none" />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">NCM (Fiscal)</label>
-                        <input type="text" value={novoNcm} onChange={e => setNovoNcm(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0000.00.00" />
-                    </div>
-                    <div>
-                        <button 
-                            onClick={salvarProduto} 
-                            className={`w-full text-white font-bold py-2 px-4 rounded shadow-md transition transform active:scale-95 ${idEdicao ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'}`}
-                        >
-                            {idEdicao ? '💾 SALVAR ALTERAÇÕES' : '+ CADASTRAR'}
-                        </button>
+                        <label className="text-xs font-bold text-gray-500 uppercase">NCM</label>
+                        <input type="text" value={novoNcm} onChange={e => setNovoNcm(e.target.value)} className="w-full border p-2 rounded outline-none" />
                     </div>
                 </div>
+
+                {/* Linha Financeira (NOVA) */}
+                {lancarFinanceiro && (
+                    <div className="bg-red-50 border border-red-200 p-3 rounded-lg mb-4 flex items-center gap-3">
+                        <input 
+                            type="checkbox" 
+                            id="chk-fin" 
+                            checked={lancarFinanceiro} 
+                            onChange={e => setLancarFinanceiro(e.target.checked)}
+                            className="w-5 h-5 text-red-600 cursor-pointer"
+                        />
+                        <label htmlFor="chk-fin" className="text-sm text-red-800 cursor-pointer">
+                            <span className="font-bold">Lançar Compra no Financeiro?</span> 
+                            <span className="block text-xs text-red-600">
+                                Valor da Nota: <b>R$ {dadosFinanceiros.valorTotal.toFixed(2)}</b> | Emissão: {dadosFinanceiros.dataEmissao}
+                            </span>
+                        </label>
+                    </div>
+                )}
+
+                {/* Botão Salvar */}
+                <div>
+                    <button 
+                        onClick={salvarProduto} 
+                        className={`w-full text-white font-bold py-3 px-4 rounded shadow-md transition transform active:scale-95 ${idEdicao ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'}`}
+                    >
+                        {idEdicao ? '💾 SALVAR ALTERAÇÕES' : (lancarFinanceiro ? '💾 CADASTRAR + LANÇAR DESPESA' : '💾 CADASTRAR PRODUTO')}
+                    </button>
+                </div>
+
             </div>
           </div>
         </div>
@@ -177,8 +245,8 @@ export default function Estoque() {
         {/* --- LISTAGEM --- */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
-                <h3 className="font-bold text-gray-700">Lista de Produtos</h3>
-                <input type="text" placeholder="🔍 Buscar por nome, EAN ou SKU..." value={busca} onChange={e => setBusca(e.target.value)} className="border p-2 pl-4 rounded-full text-sm w-72 focus:outline-blue-500" />
+                <h3 className="font-bold text-gray-700">Produtos Cadastrados</h3>
+                <input type="text" placeholder="🔍 Buscar..." value={busca} onChange={e => setBusca(e.target.value)} className="border p-2 pl-4 rounded-full text-sm w-72 focus:outline-blue-500" />
             </div>
             
             <table className="w-full text-left text-sm">
@@ -194,23 +262,13 @@ export default function Estoque() {
                 <tbody className="divide-y divide-gray-100">
                     {produtosFiltrados.map(p => (
                         <tr key={p.id} className={`hover:bg-blue-50 transition ${p.estoque <= 0 ? 'bg-red-50' : ''}`}>
-                            <td className="p-4 font-medium text-gray-800">
-                                {p.nome}
-                                <div className="text-xs text-gray-400 mt-1">NCM: {p.ncm || '-'}</div>
-                            </td>
-                            <td className="p-4 text-gray-500">
-                                <div className="font-mono text-xs">SKU: {p.sku || '-'}</div>
-                                <div className="font-mono text-xs text-gray-400">EAN: {p.ean || '-'}</div>
-                            </td>
+                            <td className="p-4 font-medium text-gray-800">{p.nome}</td>
+                            <td className="p-4 text-gray-500 text-xs">SKU: {p.sku}<br/>EAN: {p.ean}</td>
                             <td className="p-4 text-blue-700 font-bold">R$ {p.preco}</td>
-                            <td className="p-4 text-center">
-                                <span className={`px-2 py-1 rounded text-xs font-bold ${p.estoque > 5 ? 'bg-green-100 text-green-700' : p.estoque > 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                                    {p.estoque} un
-                                </span>
-                            </td>
+                            <td className="p-4 text-center"><span className="bg-gray-200 px-2 py-1 rounded font-bold">{p.estoque}</span></td>
                             <td className="p-4 text-right space-x-3">
-                                <button onClick={() => iniciarEdicao(p)} className="text-blue-600 hover:text-blue-800 font-semibold hover:underline">Editar</button>
-                                <button onClick={() => excluirProduto(p.id)} className="text-red-400 hover:text-red-600 hover:underline">Excluir</button>
+                                <button onClick={() => iniciarEdicao(p)} className="text-blue-600 hover:underline">Editar</button>
+                                <button onClick={() => excluirProduto(p.id)} className="text-red-400 hover:underline">Excluir</button>
                             </td>
                         </tr>
                     ))}
