@@ -9,7 +9,7 @@ export default function Estoque() {
   const [busca, setBusca] = useState("");
   const [idEdicao, setIdEdicao] = useState<any>(null);
   
-  // Dados do Produto
+  // Estados do Produto
   const [novoNome, setNovoNome] = useState("");
   const [novoPreco, setNovoPreco] = useState("");
   const [novoEstoque, setNovoEstoque] = useState("");
@@ -17,7 +17,7 @@ export default function Estoque() {
   const [novoSku, setNovoSku] = useState("");
   const [novoNcm, setNovoNcm] = useState("");
 
-  // Dados Financeiros da Nota (Para lançamento automático)
+  // Estados do Financeiro (Lançamento Automático)
   const [lancarFinanceiro, setLancarFinanceiro] = useState(false);
   const [dadosFinanceiros, setDadosFinanceiros] = useState({
     valorTotal: 0,
@@ -27,23 +27,25 @@ export default function Estoque() {
 
   // Função chamada pelo Leitor de XML
   function preencherComDadosDaNota(dados: any) {
+    // 1. Preenche visualmente os campos
     setNovoNome(dados.nome);
     setNovoPreco(dados.preco);
     setNovoEan(dados.ean);
     setNovoNcm(dados.ncm);
     setNovoSku(dados.sku);
-    
-    // Sugere a quantidade da nota no campo de estoque
     setNovoEstoque(dados.quantidade.toString());
 
-    // Prepara o financeiro
+    // 2. Guarda os dados para lançar no financeiro depois
     setDadosFinanceiros({
-        valorTotal: dados.valorTotalNota,
+        valorTotal: Number(dados.valorTotalNota),
         dataEmissao: dados.dataEmissao,
         numeroNota: dados.numeroNota
     });
-    setLancarFinanceiro(true); // Marca a caixinha automaticamente
+    setLancarFinanceiro(true); // Marca o checkbox
 
+    // Aviso visual discreto
+    alert(`Nota ${dados.numeroNota} lida!\nValor Total: R$ ${dados.valorTotalNota}\nClique em 'Cadastrar' para salvar no estoque e financeiro.`);
+    
     document.getElementById("input-nome")?.focus();
   }
 
@@ -64,44 +66,47 @@ export default function Estoque() {
       ncm: novoNcm
     };
 
-    // 1. SALVAR/ATUALIZAR PRODUTO
+    let erroProduto = null;
+
+    // --- 1. SALVAR PRODUTO ---
     if (idEdicao) {
-        // Modo Edição: Atualiza
         const { error } = await supabase.from('produtos').update(dadosDoProduto).eq('id', idEdicao);
-        if (error) alert("Erro produto: " + error.message);
-        else alert("Produto atualizado!");
+        erroProduto = error;
     } else {
-        // Modo Criação: Novo
         const { error } = await supabase.from('produtos').insert(dadosDoProduto);
-        if (error) alert("Erro produto: " + error.message);
-        else alert("Produto cadastrado!");
+        erroProduto = error;
     }
 
-    // 2. LANÇAR NO FINANCEIRO (Se a caixinha estiver marcada)
-    if (lancarFinanceiro && dadosFinanceiros.valorTotal > 0) {
-        const descricaoFin = `Compra NF ${dadosFinanceiros.numeroNota} - ${novoNome}`; 
-        
-        // Define as datas
-        // Data Entrada = Data da Emissão da Nota (ou Hoje se não tiver)
-        // Data Vencimento = Igual à Entrada (Padrão "À vista", ajustável manualmente depois)
-        const dataLancamento = dadosFinanceiros.dataEmissao || new Date().toISOString();
+    if (erroProduto) {
+        return alert("Erro ao salvar produto: " + erroProduto.message);
+    }
 
-        const { error: erroFin } = await supabase.from('financeiro').insert({
-            descricao: descricaoFin,
+    // --- 2. LANÇAR NO FINANCEIRO ---
+    // Só lança se: checkbox marcado + valor maior que 0 + não for edição
+    if (lancarFinanceiro && dadosFinanceiros.valorTotal > 0 && !idEdicao) {
+        
+        const dataParaBanco = dadosFinanceiros.dataEmissao || new Date().toISOString().split('T')[0];
+        
+        const payloadFinanceiro = {
+            descricao: `Compra NF ${dadosFinanceiros.numeroNota} - ${novoNome}`,
             valor: dadosFinanceiros.valorTotal,
-            tipo: 'saida', // Despesa
-            status: 'Pendente', // Novo campo: Status inicial
-            categoria: 'Compra de Estoque', // Novo campo: Categoria fixa
-            data_entrada: dataLancamento, // Novo campo: Data da Nota
-            data_vencimento: dataLancamento // Novo campo: Vencimento (mesmo dia por padrão)
-        });
+            tipo: 'saida',
+            status: 'Pendente',
+            categoria: 'Compra de Estoque',
+            data_entrada: dataParaBanco,
+            data_vencimento: dataParaBanco
+        };
+
+        const { error: erroFin } = await supabase.from('financeiro').insert(payloadFinanceiro);
 
         if (erroFin) {
-            console.error(erroFin);
-            alert("Atenção: Produto salvo, mas erro ao lançar financeiro: " + erroFin.message);
+            console.error("Erro Financeiro:", erroFin);
+            alert("Produto salvo, mas FALHA ao lançar no financeiro.\nVerifique se as colunas 'data_entrada' e 'data_vencimento' existem na tabela 'financeiro'.");
         } else {
-            alert(`💰 Despesa de R$ ${dadosFinanceiros.valorTotal} lançada no Financeiro (Pendente)!`);
+            alert(`✅ Produto Cadastrado!\n💰 Despesa de R$ ${dadosFinanceiros.valorTotal} lançada no Financeiro.`);
         }
+    } else {
+        alert("Produto salvo com sucesso!");
     }
 
     limparFormulario();
@@ -117,14 +122,14 @@ export default function Estoque() {
     setNovoSku(produto.sku || "");
     setNovoNcm(produto.ncm || "");
     
-    // Ao editar manual, desmarcamos financeiro pra evitar duplicidade
+    // Na edição, não lançamos financeiro novamente para evitar duplicidade
     setLancarFinanceiro(false);
     
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function excluirProduto(id: number) {
-    if (confirm("Excluir produto?")) {
+    if (confirm("Tem certeza que deseja excluir?")) {
         supabase.from('produtos').delete().eq('id', id).then(() => carregarProdutos());
     }
   }
@@ -157,7 +162,7 @@ export default function Estoque() {
       <main className="flex-1 ml-64 p-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Controle de Estoque</h1>
 
-        {/* --- ÁREA DE CADASTRO / EDIÇÃO --- */}
+        {/* --- ÁREA DE CADASTRO --- */}
         <div className={`p-6 rounded-xl shadow-sm mb-8 border transition-all ${idEdicao ? 'bg-yellow-50 border-yellow-200' : 'bg-white border-gray-200'}`}>
           
           <div className="flex justify-between items-center mb-4">
@@ -168,36 +173,34 @@ export default function Estoque() {
           </div>
 
           <div className="flex flex-col xl:flex-row gap-8">
-            {/* Leitor XML (Esquerda) */}
+            {/* Leitor XML */}
             {!idEdicao && (
                 <div className="xl:w-1/4">
                     <ImportarNfe aoLerNota={preencherComDadosDaNota} />
                 </div>
             )}
 
-            {/* Formulário (Direita) */}
+            {/* Formulário */}
             <div className={idEdicao ? "w-full" : "xl:w-3/4"}>
-                {/* Linha 1 */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                     <div className="md:col-span-2">
                         <label className="text-xs font-bold text-gray-500 uppercase">Nome do Produto</label>
-                        <input id="input-nome" type="text" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" />
+                        <input id="input-nome" type="text" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase">Preço Venda (R$)</label>
-                        <input type="text" value={novoPreco} onChange={e => setNovoPreco(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" />
+                        <input type="text" value={novoPreco} onChange={e => setNovoPreco(e.target.value)} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase">Estoque (Qtd)</label>
-                        <input type="number" value={novoEstoque} onChange={e => setNovoEstoque(e.target.value)} className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-600" />
+                        <input type="number" value={novoEstoque} onChange={e => setNovoEstoque(e.target.value)} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 font-bold text-blue-600" />
                     </div>
                 </div>
 
-                {/* Linha 2 */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase">EAN</label>
-                        <input type="text" value={novoEan} onChange={e => setNovoEan(e.target.value)} className="w-full border p-2 rounded outline-none" placeholder="789..." />
+                        <input type="text" value={novoEan} onChange={e => setNovoEan(e.target.value)} className="w-full border p-2 rounded outline-none" />
                     </div>
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase">SKU</label>
@@ -209,26 +212,25 @@ export default function Estoque() {
                     </div>
                 </div>
 
-                {/* Linha Financeira (NOVA) */}
+                {/* Área do Financeiro */}
                 {lancarFinanceiro && (
-                    <div className="bg-red-50 border border-red-200 p-3 rounded-lg mb-4 flex items-center gap-3">
+                    <div className="bg-green-50 border border-green-200 p-4 rounded-lg mb-4 flex items-center gap-3">
                         <input 
                             type="checkbox" 
                             id="chk-fin" 
                             checked={lancarFinanceiro} 
                             onChange={e => setLancarFinanceiro(e.target.checked)}
-                            className="w-5 h-5 text-red-600 cursor-pointer"
+                            className="w-5 h-5 text-green-600 cursor-pointer"
                         />
-                        <label htmlFor="chk-fin" className="text-sm text-red-800 cursor-pointer">
-                            <span className="font-bold">Lançar Compra no Financeiro?</span> 
-                            <span className="block text-xs text-red-600">
-                                Valor da Nota: <b>R$ {dadosFinanceiros.valorTotal.toFixed(2)}</b> | Emissão: {dadosFinanceiros.dataEmissao}
+                        <label htmlFor="chk-fin" className="text-sm text-green-800 cursor-pointer flex-1">
+                            <span className="font-bold block">Lançar Compra no Financeiro?</span> 
+                            <span className="text-xs">
+                                Nota: <b>{dadosFinanceiros.numeroNota}</b> | Valor: <b>R$ {dadosFinanceiros.valorTotal.toFixed(2)}</b> | Data: {dadosFinanceiros.dataEmissao}
                             </span>
                         </label>
                     </div>
                 )}
 
-                {/* Botão Salvar */}
                 <div>
                     <button 
                         onClick={salvarProduto} 
@@ -261,7 +263,7 @@ export default function Estoque() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                     {produtosFiltrados.map(p => (
-                        <tr key={p.id} className={`hover:bg-blue-50 transition ${p.estoque <= 0 ? 'bg-red-50' : ''}`}>
+                        <tr key={p.id} className="hover:bg-blue-50 transition">
                             <td className="p-4 font-medium text-gray-800">{p.nome}</td>
                             <td className="p-4 text-gray-500 text-xs">SKU: {p.sku}<br/>EAN: {p.ean}</td>
                             <td className="p-4 text-blue-700 font-bold">R$ {p.preco}</td>
