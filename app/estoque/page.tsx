@@ -2,14 +2,15 @@
 import { Sidebar } from "@/components/Sidebar";
 import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
-import ImportarNfe from "@/components/ImportarNfe";
+import ImportarNfe, { DadosNotaFiscal } from "@/components/ImportarNfe";
 
 export default function Estoque() {
+  const [abaAtiva, setAbaAtiva] = useState<'manual' | 'xml'>('manual');
   const [produtos, setProdutos] = useState<any[]>([]);
   const [busca, setBusca] = useState("");
-  const [idEdicao, setIdEdicao] = useState<any>(null);
   
-  // Estados do Produto
+  // --- ESTADOS DO CADASTRO MANUAL ---
+  const [idEdicao, setIdEdicao] = useState<any>(null);
   const [novoNome, setNovoNome] = useState("");
   const [novoPreco, setNovoPreco] = useState("");
   const [novoEstoque, setNovoEstoque] = useState("");
@@ -17,103 +18,23 @@ export default function Estoque() {
   const [novoSku, setNovoSku] = useState("");
   const [novoNcm, setNovoNcm] = useState("");
 
-  // Estados do Financeiro (Lançamento Automático)
-  const [lancarFinanceiro, setLancarFinanceiro] = useState(false);
-  const [dadosFinanceiros, setDadosFinanceiros] = useState({
-    valorTotal: 0,
-    dataEmissao: "",
-    numeroNota: ""
-  });
+  // --- ESTADOS DA IMPORTAÇÃO XML ---
+  const [notaImportada, setNotaImportada] = useState<DadosNotaFiscal | null>(null);
+  const [salvandoLote, setSalvandoLote] = useState(false);
+  const [progresso, setProgresso] = useState(""); // Feedback visual
 
-  // Função chamada pelo Leitor de XML
-  function preencherComDadosDaNota(dados: any) {
-    // 1. Preenche visualmente os campos
-    setNovoNome(dados.nome);
-    setNovoPreco(dados.preco);
-    setNovoEan(dados.ean);
-    setNovoNcm(dados.ncm);
-    setNovoSku(dados.sku);
-    setNovoEstoque(dados.quantidade.toString());
-
-    // 2. Guarda os dados para lançar no financeiro depois
-    setDadosFinanceiros({
-        valorTotal: Number(dados.valorTotalNota),
-        dataEmissao: dados.dataEmissao,
-        numeroNota: dados.numeroNota
-    });
-    setLancarFinanceiro(true); // Marca o checkbox
-
-    // Aviso visual discreto
-    alert(`Nota ${dados.numeroNota} lida!\nValor Total: R$ ${dados.valorTotalNota}\nClique em 'Cadastrar' para salvar no estoque e financeiro.`);
-    
-    document.getElementById("input-nome")?.focus();
-  }
+  useEffect(() => {
+    carregarProdutos();
+  }, []);
 
   async function carregarProdutos() {
     const { data } = await supabase.from('produtos').select('*').order('created_at', { ascending: false });
     setProdutos(data || []);
   }
 
-  async function salvarProduto() {
-    if (!novoNome || !novoPreco) return alert("Preencha nome e preço!");
-
-    const dadosDoProduto = {
-      nome: novoNome,
-      preco: parseFloat(novoPreco.toString().replace(',', '.')),
-      estoque: parseInt(novoEstoque) || 0,
-      ean: novoEan,
-      sku: novoSku,
-      ncm: novoNcm
-    };
-
-    let erroProduto = null;
-
-    // --- 1. SALVAR PRODUTO ---
-    if (idEdicao) {
-        const { error } = await supabase.from('produtos').update(dadosDoProduto).eq('id', idEdicao);
-        erroProduto = error;
-    } else {
-        const { error } = await supabase.from('produtos').insert(dadosDoProduto);
-        erroProduto = error;
-    }
-
-    if (erroProduto) {
-        return alert("Erro ao salvar produto: " + erroProduto.message);
-    }
-
-    // --- 2. LANÇAR NO FINANCEIRO ---
-    // Só lança se: checkbox marcado + valor maior que 0 + não for edição
-    if (lancarFinanceiro && dadosFinanceiros.valorTotal > 0 && !idEdicao) {
-        
-        const dataParaBanco = dadosFinanceiros.dataEmissao || new Date().toISOString().split('T')[0];
-        
-        const payloadFinanceiro = {
-            descricao: `Compra NF ${dadosFinanceiros.numeroNota} - ${novoNome}`,
-            valor: dadosFinanceiros.valorTotal,
-            tipo: 'saida',
-            status: 'Pendente',
-            categoria: 'Compra de Estoque',
-            data_entrada: dataParaBanco,
-            data_vencimento: dataParaBanco
-        };
-
-        const { error: erroFin } = await supabase.from('financeiro').insert(payloadFinanceiro);
-
-        if (erroFin) {
-            console.error("Erro Financeiro:", erroFin);
-            alert("Produto salvo, mas FALHA ao lançar no financeiro.\nVerifique se as colunas 'data_entrada' e 'data_vencimento' existem na tabela 'financeiro'.");
-        } else {
-            alert(`✅ Produto Cadastrado!\n💰 Despesa de R$ ${dadosFinanceiros.valorTotal} lançada no Financeiro.`);
-        }
-    } else {
-        alert("Produto salvo com sucesso!");
-    }
-
-    limparFormulario();
-    carregarProdutos();
-  }
-
+  // --- LÓGICA MANUAL (Mantida) ---
   function iniciarEdicao(produto: any) {
+    setAbaAtiva('manual');
     setIdEdicao(produto.id);
     setNovoNome(produto.nome);
     setNovoPreco(produto.preco);
@@ -121,39 +42,135 @@ export default function Estoque() {
     setNovoEan(produto.ean || "");
     setNovoSku(produto.sku || "");
     setNovoNcm(produto.ncm || "");
-    
-    // Na edição, não lançamos financeiro novamente para evitar duplicidade
-    setLancarFinanceiro(false);
-    
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function excluirProduto(id: number) {
-    if (confirm("Tem certeza que deseja excluir?")) {
-        supabase.from('produtos').delete().eq('id', id).then(() => carregarProdutos());
+  function limparFormularioManual() {
+    setNovoNome(""); setNovoPreco(""); setNovoEstoque(""); 
+    setNovoEan(""); setNovoSku(""); setNovoNcm("");
+    setIdEdicao(null);
+  }
+
+  async function salvarProdutoManual() {
+    if (!novoNome || !novoPreco) return alert("Preencha nome e preço!");
+    const dados = {
+      nome: novoNome,
+      preco: parseFloat(novoPreco.replace(',', '.')),
+      estoque: parseInt(novoEstoque) || 0,
+      ean: novoEan, sku: novoSku, ncm: novoNcm
+    };
+
+    if (idEdicao) {
+        await supabase.from('produtos').update(dados).eq('id', idEdicao);
+        alert("Atualizado!");
+    } else {
+        await supabase.from('produtos').insert(dados);
+        alert("Cadastrado!");
+    }
+    limparFormularioManual();
+    carregarProdutos();
+  }
+
+  async function excluirProduto(id: number) {
+    if (confirm("Excluir?")) {
+        await supabase.from('produtos').delete().eq('id', id);
+        carregarProdutos();
     }
   }
 
-  function limparFormulario() {
-    setNovoNome("");
-    setNovoPreco("");
-    setNovoEstoque("");
-    setNovoEan("");
-    setNovoSku("");
-    setNovoNcm("");
-    setIdEdicao(null);
-    setLancarFinanceiro(false);
-    setDadosFinanceiros({ valorTotal: 0, dataEmissao: "", numeroNota: "" });
+  // --- LÓGICA IMPORTAÇÃO XML (ATUALIZADA) ---
+  function receberDadosXML(dados: DadosNotaFiscal) {
+    setNotaImportada(dados);
+    setTimeout(() => {
+        document.getElementById('area-conferencia')?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   }
 
-  useEffect(() => {
-    carregarProdutos();
-  }, []);
+  async function confirmarImportacao() {
+    if (!notaImportada) return;
+    setSalvandoLote(true);
+    setProgresso("Iniciando...");
+
+    try {
+        let novosCadastrados = 0;
+        let estoqueAtualizado = 0;
+
+        // 1. Processar Item por Item (Verificar se existe)
+        for (const [index, item] of notaImportada.itens.entries()) {
+            setProgresso(`Processando item ${index + 1} de ${notaImportada.itens.length}...`);
+
+            // Busca produto pelo SKU (Código do Fornecedor)
+            // Se o SKU for vazio ou genérico, tenta pelo EAN
+            let query = supabase.from('produtos').select('*').eq('sku', item.codigo);
+            if (!item.codigo && item.ean) {
+                query = supabase.from('produtos').select('*').eq('ean', item.ean);
+            }
+
+            const { data: existentes } = await query;
+            const produtoExistente = existentes && existentes.length > 0 ? existentes[0] : null;
+
+            if (produtoExistente) {
+                // ATUALIZAR (Soma Estoque + Atualiza Custo)
+                const novaQuantidade = (produtoExistente.estoque || 0) + item.quantidade;
+                
+                await supabase.from('produtos').update({
+                    estoque: novaQuantidade,
+                    custo: item.valorUnitario, // Atualiza custo para o da última nota
+                    fornecedor: notaImportada.emitente,
+                    unidade: item.unidade
+                }).eq('id', produtoExistente.id);
+                
+                estoqueAtualizado++;
+            } else {
+                // CRIAR NOVO
+                await supabase.from('produtos').insert({
+                    nome: item.descricao,
+                    sku: item.codigo,
+                    ean: item.ean,
+                    ncm: item.ncm,
+                    unidade: item.unidade,
+                    fornecedor: notaImportada.emitente,
+                    estoque: item.quantidade,
+                    custo: item.valorUnitario,
+                    preco: item.valorUnitario * 1.5, // Margem sugerida 50%
+                    created_at: new Date().toISOString()
+                });
+                novosCadastrados++;
+            }
+        }
+
+        setProgresso("Lançando Financeiro...");
+
+        // 2. Lançar no Financeiro
+        const { error: errFin } = await supabase.from('financeiro').insert({
+            descricao: `Compra NF ${notaImportada.numero} - ${notaImportada.emitente}`,
+            valor: notaImportada.valorTotalNota,
+            tipo: 'saida',
+            status: 'Pendente',
+            categoria: 'Compra de Estoque',
+            data_entrada: notaImportada.dataEmissao, // Data da Nota
+            data_vencimento: notaImportada.dataEmissao // Padrão
+        });
+
+        if (errFin) throw new Error("Erro Financeiro: " + errFin.message);
+
+        alert(`✅ Importação Concluída!\n\n🆕 Produtos Novos: ${novosCadastrados}\n📦 Estoques Atualizados: ${estoqueAtualizado}\n💰 Despesa Financeira Lançada.`);
+        
+        setNotaImportada(null);
+        setAbaAtiva('manual');
+        carregarProdutos();
+
+    } catch (error: any) {
+        alert("Erro no processo: " + error.message);
+    } finally {
+        setSalvandoLote(false);
+        setProgresso("");
+    }
+  }
 
   const produtosFiltrados = produtos.filter(p => 
-    p.nome.toLowerCase().includes(busca.toLowerCase()) ||
-    (p.ean && p.ean.includes(busca)) || 
-    (p.sku && p.sku.includes(busca))
+    p.nome?.toLowerCase().includes(busca.toLowerCase()) ||
+    (p.ean && p.ean.includes(busca))
   );
 
   return (
@@ -162,122 +179,108 @@ export default function Estoque() {
       <main className="flex-1 ml-64 p-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Controle de Estoque</h1>
 
-        {/* --- ÁREA DE CADASTRO --- */}
-        <div className={`p-6 rounded-xl shadow-sm mb-8 border transition-all ${idEdicao ? 'bg-yellow-50 border-yellow-200' : 'bg-white border-gray-200'}`}>
-          
-          <div className="flex justify-between items-center mb-4">
-              <h2 className={`text-lg font-bold uppercase tracking-wide ${idEdicao ? 'text-yellow-700' : 'text-gray-500'}`}>
-                {idEdicao ? '✏️ Editando Produto' : '✨ Entrada de Produto'}
-              </h2>
-              {idEdicao && <button onClick={limparFormulario} className="text-sm text-red-600 hover:underline">Cancelar</button>}
-          </div>
+        {/* --- ABAS --- */}
+        <div className="flex gap-4 mb-6 border-b border-gray-300 pb-1">
+            <button onClick={() => setAbaAtiva('manual')} className={`pb-2 px-4 font-bold text-sm transition ${abaAtiva === 'manual' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>🖐️ Cadastro Manual</button>
+            <button onClick={() => setAbaAtiva('xml')} className={`pb-2 px-4 font-bold text-sm transition ${abaAtiva === 'xml' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>📄 Importar XML (Lote)</button>
+        </div>
 
-          <div className="flex flex-col xl:flex-row gap-8">
-            {/* Leitor XML */}
-            {!idEdicao && (
-                <div className="xl:w-1/4">
-                    <ImportarNfe aoLerNota={preencherComDadosDaNota} />
-                </div>
-            )}
-
-            {/* Formulário */}
-            <div className={idEdicao ? "w-full" : "xl:w-3/4"}>
+        {/* CONTEÚDO MANUAL (Ocultado para brevidade, igual anterior) */}
+        {abaAtiva === 'manual' && (
+             <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-gray-200">
+                <h2 className="font-bold text-gray-700 mb-4 uppercase text-sm">{idEdicao ? 'Editar Produto' : 'Novo Produto'}</h2>
+                {/* ... Campos Manuais iguais ao anterior ... */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                    <div className="md:col-span-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Nome do Produto</label>
-                        <input id="input-nome" type="text" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">Preço Venda (R$)</label>
-                        <input type="text" value={novoPreco} onChange={e => setNovoPreco(e.target.value)} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">Estoque (Qtd)</label>
-                        <input type="number" value={novoEstoque} onChange={e => setNovoEstoque(e.target.value)} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 font-bold text-blue-600" />
-                    </div>
+                    <div className="md:col-span-2"><label className="text-xs font-bold text-gray-500">Nome</label><input type="text" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="w-full border p-2 rounded outline-blue-500" /></div>
+                    <div><label className="text-xs font-bold text-gray-500">Preço Venda</label><input type="text" value={novoPreco} onChange={e => setNovoPreco(e.target.value)} className="w-full border p-2 rounded outline-blue-500" /></div>
+                    <div><label className="text-xs font-bold text-gray-500">Estoque</label><input type="number" value={novoEstoque} onChange={e => setNovoEstoque(e.target.value)} className="w-full border p-2 rounded outline-blue-500" /></div>
+                    <div><label className="text-xs font-bold text-gray-500">EAN</label><input type="text" value={novoEan} onChange={e => setNovoEan(e.target.value)} className="w-full border p-2 rounded outline-blue-500" /></div>
+                    <div><label className="text-xs font-bold text-gray-500">SKU</label><input type="text" value={novoSku} onChange={e => setNovoSku(e.target.value)} className="w-full border p-2 rounded outline-blue-500" /></div>
+                    <div><label className="text-xs font-bold text-gray-500">NCM</label><input type="text" value={novoNcm} onChange={e => setNovoNcm(e.target.value)} className="w-full border p-2 rounded outline-blue-500" /></div>
+                    <div className="flex items-end"><button onClick={salvarProdutoManual} className="w-full bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700">{idEdicao ? 'Salvar' : 'Cadastrar'}</button></div>
+                    {idEdicao && <div className="flex items-end"><button onClick={limparFormularioManual} className="w-full bg-gray-200 text-gray-700 font-bold py-2 rounded hover:bg-gray-300">Cancelar</button></div>}
                 </div>
+             </div>
+        )}
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">EAN</label>
-                        <input type="text" value={novoEan} onChange={e => setNovoEan(e.target.value)} className="w-full border p-2 rounded outline-none" />
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">SKU</label>
-                        <input type="text" value={novoSku} onChange={e => setNovoSku(e.target.value)} className="w-full border p-2 rounded outline-none" />
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">NCM</label>
-                        <input type="text" value={novoNcm} onChange={e => setNovoNcm(e.target.value)} className="w-full border p-2 rounded outline-none" />
-                    </div>
-                </div>
+        {/* CONTEÚDO XML */}
+        {abaAtiva === 'xml' && (
+            <div className="space-y-6 animate-in fade-in">
+                {!notaImportada && <div className="h-64"><ImportarNfe aoLerNota={receberDadosXML} /></div>}
 
-                {/* Área do Financeiro */}
-                {lancarFinanceiro && (
-                    <div className="bg-green-50 border border-green-200 p-4 rounded-lg mb-4 flex items-center gap-3">
-                        <input 
-                            type="checkbox" 
-                            id="chk-fin" 
-                            checked={lancarFinanceiro} 
-                            onChange={e => setLancarFinanceiro(e.target.checked)}
-                            className="w-5 h-5 text-green-600 cursor-pointer"
-                        />
-                        <label htmlFor="chk-fin" className="text-sm text-green-800 cursor-pointer flex-1">
-                            <span className="font-bold block">Lançar Compra no Financeiro?</span> 
-                            <span className="text-xs">
-                                Nota: <b>{dadosFinanceiros.numeroNota}</b> | Valor: <b>R$ {dadosFinanceiros.valorTotal.toFixed(2)}</b> | Data: {dadosFinanceiros.dataEmissao}
-                            </span>
-                        </label>
+                {notaImportada && (
+                    <div id="area-conferencia" className="bg-white rounded-xl shadow-lg border border-blue-200 overflow-hidden">
+                        <div className="bg-blue-50 p-6 border-b border-blue-100 flex justify-between">
+                            <div>
+                                <h2 className="text-xl font-bold text-blue-900 mb-1">Nota Fiscal: {notaImportada.numero}</h2>
+                                <p className="text-blue-700 font-medium">{notaImportada.emitente}</p>
+                                <p className="text-xs text-blue-500">CNPJ: {notaImportada.cnpjEmitente}</p>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-xs text-blue-500 uppercase font-bold">Total Nota</div>
+                                <div className="text-2xl font-bold text-green-600">R$ {notaImportada.valorTotalNota.toFixed(2)}</div>
+                                <div className="text-xs text-gray-400 mt-1">Data: {notaImportada.dataEmissao}</div>
+                            </div>
+                        </div>
+
+                        <div className="p-4 overflow-x-auto">
+                            <table className="w-full text-left text-xs">
+                                <thead className="bg-gray-100 text-gray-600 uppercase font-bold">
+                                    <tr><th className="p-3">Cód.</th><th className="p-3">Produto</th><th className="p-3 text-center">Qtd.</th><th className="p-3 text-right">Custo Unit.</th><th className="p-3 text-right">Total</th></tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {notaImportada.itens.map((item, idx) => (
+                                        <tr key={idx} className="hover:bg-blue-50">
+                                            <td className="p-3 font-mono text-gray-500">{item.codigo}</td>
+                                            <td className="p-3 font-bold text-gray-800">{item.descricao}</td>
+                                            <td className="p-3 text-center font-bold bg-gray-50">{item.quantidade}</td>
+                                            <td className="p-3 text-right text-blue-600 font-medium">R$ {item.valorUnitario.toFixed(2)}</td>
+                                            <td className="p-3 text-right font-bold text-gray-800">R$ {item.valorTotalItem.toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="p-6 bg-gray-50 border-t flex justify-between items-center">
+                            <div className="text-blue-600 font-bold animate-pulse">{progresso}</div>
+                            <div className="flex gap-4">
+                                <button onClick={() => setNotaImportada(null)} className="px-6 py-3 rounded-lg font-bold text-gray-600 hover:bg-gray-200 transition" disabled={salvandoLote}>Cancelar</button>
+                                <button onClick={confirmarImportacao} disabled={salvandoLote} className="px-8 py-3 rounded-lg font-bold text-white bg-green-600 hover:bg-green-700 shadow-md transition">
+                                    {salvandoLote ? 'Processando...' : '✅ CONFIRMAR E UNIFICAR'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
-
-                <div>
-                    <button 
-                        onClick={salvarProduto} 
-                        className={`w-full text-white font-bold py-3 px-4 rounded shadow-md transition transform active:scale-95 ${idEdicao ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'}`}
-                    >
-                        {idEdicao ? '💾 SALVAR ALTERAÇÕES' : (lancarFinanceiro ? '💾 CADASTRAR + LANÇAR DESPESA' : '💾 CADASTRAR PRODUTO')}
-                    </button>
-                </div>
-
             </div>
-          </div>
-        </div>
+        )}
 
-        {/* --- LISTAGEM --- */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
-                <h3 className="font-bold text-gray-700">Produtos Cadastrados</h3>
-                <input type="text" placeholder="🔍 Buscar..." value={busca} onChange={e => setBusca(e.target.value)} className="border p-2 pl-4 rounded-full text-sm w-72 focus:outline-blue-500" />
+        {/* LISTAGEM */}
+        <div className="mt-12">
+            <h3 className="font-bold text-gray-700 mb-4 text-lg border-b pb-2">📦 Estoque Atual</h3>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
+                        <tr><th className="p-4">Produto</th><th className="p-4">Fornecedor / Custo</th><th className="p-4">Preço Venda</th><th className="p-4 text-center">Estoque</th><th className="p-4 text-right">Ações</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {produtosFiltrados.map(p => (
+                            <tr key={p.id} className="hover:bg-blue-50">
+                                <td className="p-4"><div className="font-medium text-gray-800">{p.nome}</div><div className="text-xs text-gray-400">SKU: {p.sku}</div></td>
+                                <td className="p-4 text-gray-500 text-xs">{p.fornecedor || '-'}<div className="text-green-600 font-bold mt-1">Custo: R$ {p.custo}</div></td>
+                                <td className="p-4 text-blue-700 font-bold">R$ {p.preco}</td>
+                                <td className="p-4 text-center"><span className="bg-gray-100 px-2 py-1 rounded font-bold text-gray-700">{p.estoque} {p.unidade}</span></td>
+                                <td className="p-4 text-right space-x-2">
+                                    <button onClick={() => iniciarEdicao(p)} className="text-blue-600 text-xs font-bold border border-blue-200 px-2 py-1 rounded hover:bg-blue-100">Editar</button>
+                                    <button onClick={() => excluirProduto(p.id)} className="text-red-500 text-xs font-bold border border-red-200 px-2 py-1 rounded hover:bg-red-50">Excluir</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </div>
-            
-            <table className="w-full text-left text-sm">
-                <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
-                    <tr>
-                        <th className="p-4">Produto</th>
-                        <th className="p-4">SKU / EAN</th>
-                        <th className="p-4">Preço</th>
-                        <th className="p-4 text-center">Estoque</th>
-                        <th className="p-4 text-right">Ações</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                    {produtosFiltrados.map(p => (
-                        <tr key={p.id} className="hover:bg-blue-50 transition">
-                            <td className="p-4 font-medium text-gray-800">{p.nome}</td>
-                            <td className="p-4 text-gray-500 text-xs">SKU: {p.sku}<br/>EAN: {p.ean}</td>
-                            <td className="p-4 text-blue-700 font-bold">R$ {p.preco}</td>
-                            <td className="p-4 text-center"><span className="bg-gray-200 px-2 py-1 rounded font-bold">{p.estoque}</span></td>
-                            <td className="p-4 text-right space-x-3">
-                                <button onClick={() => iniciarEdicao(p)} className="text-blue-600 hover:underline">Editar</button>
-                                <button onClick={() => excluirProduto(p.id)} className="text-red-400 hover:underline">Excluir</button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
         </div>
-
       </main>
     </div>
   );
